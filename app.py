@@ -10,6 +10,10 @@ from functools import wraps
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 
+# Initialise database on startup (works with both gunicorn and direct run)
+with app.app_context():
+    pass  # init_db called below after functions are defined
+
 DB = os.path.join(os.path.dirname(__file__), 'usage.db')
 DASHBOARD_HTML = os.path.join(os.path.dirname(__file__), 'dashboard.html')
 
@@ -534,6 +538,9 @@ def init_db():
         print("✓ Default admin created: admin / admin123")
         print("  IMPORTANT: Change the admin password immediately!")
     db.close()
+
+# Initialise database immediately on module load
+init_db()
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 

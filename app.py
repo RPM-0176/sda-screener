@@ -463,7 +463,7 @@ def admin_stats():
         'prop_views':[],'downloads':[]
     })
 
-@app.route('/admin/users')
+@app.route('/admin/api/users')
 @admin_required
 def admin_users():
     db = get_db()

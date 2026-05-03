@@ -1,4 +1,4 @@
-# v2\nLOGIN_HTML = """
+LOGIN_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>

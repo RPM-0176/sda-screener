@@ -3398,12 +3398,15 @@ var propExtras={};
 var shortlist=[];
 var props=[],filt=[],sortK='ret',sortD=-1;
 
+function initServerMode(){
+  if(window.location.protocol === 'file:') return;
+  var ab=document.getElementById('admin-btn'); if(ab)ab.style.display='inline-block';
+  var lb=document.getElementById('logout-btn'); if(lb)lb.style.display='inline-block';
+  setTimeout(autoLoadFromServer, 500);
+}
 window.addEventListener('load',function(){
+  initServerMode();
   if(window.location.protocol !== 'file:'){
-    var ab=document.getElementById('admin-btn'); if(ab)ab.style.display='inline-block';
-    var lb=document.getElementById('logout-btn'); if(lb)lb.style.display='inline-block';
-    setTimeout(autoLoadFromServer, 500);
-  }
   ['vic','nsw','qld'].forEach(function(st){
     document.getElementById('csv-'+st).addEventListener('change',function(e){
       var file=e.target.files[0];

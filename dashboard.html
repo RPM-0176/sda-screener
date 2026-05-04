@@ -3471,6 +3471,7 @@ function loadRows(rows,st){
     var price=parseFloat(pv)||0;
     var land=parseFloat(lv)||0;
     if(!price||price<100000)continue;
+    if(land>0&&land>1000)continue;
     var stOffset={'vic':0,'nsw':100000,'qld':200000}[st]||0;
     out.push({id:stOffset+i+1,addr:addr,price:price,land:land,state:st,
       sa4:String(o.sa4||o.SA4||''),sa3:String(o.sa3||o.SA3||o.Suburb||''),
@@ -3896,6 +3897,7 @@ function applyF(){
     if(fMed==='yes'&&!pr.underMedian)return false;
     if(pr.price>fPrice)return false;
     if(fLand>0&&pr.land>0&&pr.land<fLand)return false;
+    if(pr.land>0&&pr.land>1000)return false;
     if(fDem>0&&(!pr.sda||pr.sda.d<fDem))return false;
     if(fIRR==='yes'&&(!pr.bestIRR||pr.bestIRR<SH.irrTgt))return false;
     return true;
@@ -3956,7 +3958,9 @@ function renderTable(tgt){
     var medStr=pr.median>0?(pr.underMedian?'<span style="color:#0F6E56;font-weight:700">&#8595; under</span>':'<span style="color:#BA7517">&#8593; over</span>'):'—';
     html+='<tr class="dr" onclick="toggleD('+pr.id+')">'
       +'<td>'
-      +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a></td>'
+      +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a>'
+      +'<a href="https://app.landchecker.com.au/#/search?query='+encodeURIComponent(pr.addr+', Australia')+'" target="_blank" onclick="event.stopPropagation()" style="margin-left:6px;font-size:10px;padding:2px 6px;background:#f0f5fb;border:1px solid #c8ddf5;border-radius:4px;color:#0C447C;text-decoration:none;font-weight:600">LC &#127759;</a>'
+      +'</td>'
       +'<td>'+fmtPrice(pr.price)+'</td>'
       +'<td>'+(pr.land>0?Math.round(pr.land)+'m\u00b2':'—')+'</td>'
       +'<td>'+stB+'</td>'

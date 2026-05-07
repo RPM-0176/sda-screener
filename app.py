@@ -1384,6 +1384,58 @@ def api_sda_market_status():
     return jsonify([dict(r) for r in rows])
 
 
+@app.route('/api/sda-nearby')
+@login_required
+def api_sda_nearby():
+    """Find SDA market pins within radius_km of (lat, lng).
+    Query: lat, lng, radius_km (default 5)
+    Returns: { 'radius':[...], 'existing':[...], 'permitted':[...] } where
+    each item has address, suburb, state, area_m2, frontage_m, planning_zones,
+    notes, lat, lng, distance_km. Sorted by distance ascending."""
+    try:
+        lat = float(request.args.get('lat', ''))
+        lng = float(request.args.get('lng', ''))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid lat/lng'}), 400
+    try:
+        radius_km = float(request.args.get('radius_km') or 5.0)
+    except ValueError:
+        radius_km = 5.0
+    radius_km = max(0.1, min(50.0, radius_km))
+
+    # Pre-filter with a bounding box to avoid running haversine on every row.
+    # 1 deg latitude  ~= 111 km
+    # 1 deg longitude ~= 111 km * cos(lat)
+    import math
+    dlat = radius_km / 111.0
+    dlng = radius_km / (111.0 * max(0.001, math.cos(math.radians(lat))))
+    db = get_db()
+    rows = db.execute("""
+        SELECT layer, state, address, suburb, postcode, area_m2, frontage_m,
+               planning_zones, notes, lat, lng
+        FROM sda_market
+        WHERE lat IS NOT NULL AND lng IS NOT NULL
+          AND lat BETWEEN ? AND ?
+          AND lng BETWEEN ? AND ?
+    """, (lat - dlat, lat + dlat, lng - dlng, lng + dlng)).fetchall()
+    db.close()
+
+    out = {'radius': [], 'existing': [], 'permitted': []}
+    for r in rows:
+        d = _haversine_km(lat, lng, r['lat'], r['lng'])
+        if d > radius_km:
+            continue
+        item = dict(r)
+        item['distance_km'] = round(d, 2)
+        layer = item['layer']
+        if layer in out:
+            out[layer].append(item)
+    # Sort each layer by distance
+    for k in out:
+        out[k].sort(key=lambda x: x['distance_km'])
+    return jsonify(out)
+
+
 @app.route('/admin/upload_sda_page')
 @admin_required
 def upload_sda_page():

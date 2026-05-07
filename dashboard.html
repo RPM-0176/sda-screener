@@ -4443,7 +4443,15 @@ function buildDetail(pr,tgt){
     + '</div>'
     + '<div style="font-size:10px;color:#9CA3AF;margin-top:6px">Enter LandChecker frontage &amp; depth, then press Enter or click Update. Saved per property &mdash; build models that fit are marked &#10003; on the cards above.</div>'
     + '</div>';
-  return '<div class="dinn">'+cards+sdaCard+medCard+sa3Card+proxCard+toolsCard+expBtn+'</div>';
+
+  // Nearby SDA card — placeholder, populated async by fetchNearbySda once
+  // the panel is in the DOM. Spans full width like the proximity card.
+  var nearbySdaCard = '<div class="dcard" style="grid-column:span 2" id="nearby-sda-' + pr.id + '">'
+    + '<h4>Nearby SDA properties (within 5km)</h4>'
+    + '<div style="font-size:11px;color:#9CA3AF;padding:6px 0">Loading nearby SDA data&hellip;</div>'
+    + '</div>';
+
+  return '<div class="dinn">'+cards+sdaCard+medCard+sa3Card+proxCard+nearbySdaCard+toolsCard+expBtn+'</div>';
 }
 
 // Commit dimensions when user presses Enter or clicks Update.
@@ -4548,6 +4556,123 @@ function renderSiteFitSummary(pr){
   el.innerHTML = '<div style="font-size:10px;color:#6B7280;font-weight:700;text-transform:uppercase;margin-bottom:4px">Site fit by build model</div>'+rows;
 }
 
+// =============================================================================
+// Nearby SDA — fetches pins within 5km of the expanded property and renders
+// counts + expandable lists into the placeholder card.
+// =============================================================================
+// Cache by property id so re-expanding doesn't re-fetch unnecessarily
+var nearbySdaCache = {};
+
+function fetchNearbySda(pr){
+  var card = document.getElementById('nearby-sda-' + pr.id);
+  if (!card) return;
+
+  // If already cached, render directly
+  if (nearbySdaCache[pr.id]) {
+    renderNearbySda(pr, nearbySdaCache[pr.id]);
+    return;
+  }
+
+  // Properties don't have lat/lng in their CSVs — geocode the address.
+  // Browsers cache the response, so re-expanding the same property is fast.
+  var coordsPromise = fetch('/api/geocode?address=' + encodeURIComponent(pr.addr), {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d && d.lat && d.lng) return {lat: d.lat, lng: d.lng};
+      throw new Error('Could not geocode property address');
+    });
+
+  coordsPromise
+    .then(function(coords){
+      return fetch('/api/sda-nearby?lat=' + coords.lat + '&lng=' + coords.lng + '&radius_km=5',
+                   {credentials:'same-origin'})
+        .then(function(r){ return r.json(); });
+    })
+    .then(function(data){
+      nearbySdaCache[pr.id] = data;
+      renderNearbySda(pr, data);
+    })
+    .catch(function(err){
+      card.innerHTML = '<h4>Nearby SDA properties (within 5km)</h4>'
+        + '<div style="font-size:11px;color:#A32D2D;padding:6px 0">Could not load: ' + (err.message || err) + '</div>';
+    });
+}
+
+function renderNearbySda(pr, data){
+  var card = document.getElementById('nearby-sda-' + pr.id);
+  if (!card) return;
+  var radius = (data.radius || []).length;
+  var existing = (data.existing || []).length;
+  var permitted = (data.permitted || []).length;
+  var total = radius + existing + permitted;
+
+  var html = '<h4>Nearby SDA properties (within 5km)</h4>';
+
+  if (total === 0) {
+    html += '<div style="font-size:11px;color:#9CA3AF;padding:6px 0">No SDA properties found within 5km. (Upload SDA market data via the admin panel if you haven\'t already.)</div>';
+    card.innerHTML = html;
+    return;
+  }
+
+  // Three count chips
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">'
+    + countChip('radius',    radius,    '#1e40af', pr.id)
+    + countChip('existing',  existing,  '#0F6E56', pr.id)
+    + countChip('permitted', permitted, '#ea580c', pr.id)
+    + '</div>';
+
+  // Expandable lists for each layer (hidden by default)
+  ['radius','existing','permitted'].forEach(function(layer){
+    var items = data[layer] || [];
+    if (items.length === 0) return;
+    html += '<div id="nsda-list-' + pr.id + '-' + layer + '" style="display:none;margin:6px 0 10px;border-top:1px solid #eee;padding-top:8px">';
+    html += '<div style="font-size:11px;font-weight:700;color:#666;margin-bottom:4px;text-transform:uppercase">'
+      + layer + ' (' + items.length + ')</div>';
+    items.forEach(function(it){
+      var distClr = it.distance_km <= 1 ? '#A32D2D' : (it.distance_km <= 2 ? '#BA7517' : '#0F6E56');
+      var notesHtml = it.notes ? '<div style="font-size:10px;color:#9CA3AF;margin-top:2px;white-space:pre-wrap">' + escapeHtml(it.notes) + '</div>' : '';
+      html += '<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px dashed #eee">'
+        + '<div style="flex:1;min-width:0">'
+        +   '<div style="font-size:12px;color:#1a1a1a;font-weight:500">' + escapeHtml(it.address || '') + '</div>'
+        +   notesHtml
+        + '</div>'
+        + '<div style="font-size:11px;color:'+distClr+';font-weight:700;white-space:nowrap">' + it.distance_km + ' km</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+
+  // Caveat
+  html += '<div style="font-size:10px;color:#9CA3AF;margin-top:8px;border-top:1px solid #eee;padding-top:6px">'
+    + 'Click a count above to expand the list. Distances are straight-line from this property.</div>';
+
+  card.innerHTML = html;
+}
+
+function countChip(layer, count, color, propId){
+  return '<button type="button" onclick="toggleNearbyList(\'' + propId + '\',\'' + layer + '\')" '
+    + 'style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:#fff;'
+    +   'border:2px solid ' + color + ';border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;color:'+color+';">'
+    + '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+color+'"></span>'
+    + count + ' ' + layer.charAt(0).toUpperCase() + layer.slice(1)
+    + '</button>';
+}
+
+function toggleNearbyList(propId, layer){
+  var el = document.getElementById('nsda-list-' + propId + '-' + layer);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// HTML-escape helper if not already defined
+if (typeof escapeHtml === 'undefined') {
+  function escapeHtml(s){
+    return String(s||'').replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+}
+
 function toggleD(id){
   var el=document.getElementById('dtr-'+id);
   if(!el)return;
@@ -4563,6 +4688,8 @@ function toggleD(id){
         catch(e){ td.innerHTML='<div style="padding:12px;color:#A32D2D">Error: '+e.message+'</div>'; }
         // Log property view to server
         serverLog('property_view',{addr:pr.addr,state:pr.state,sa4:pr.sa4,price:pr.price});
+        // Async: fetch and render nearby SDA pins (5 km radius)
+        fetchNearbySda(pr);
       }
     }
     el.style.display='table-row';

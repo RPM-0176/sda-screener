@@ -159,6 +159,7 @@ tr.dr:hover td{background:#fafaf9}
   <button class="tab on" onclick="sw('screen',this)">Screener</button>
   <button class="tab" onclick="sw('pricing',this)">SDA Pricing</button>
   <button class="tab" onclick="sw('demand',this)">SA3 Demand</button>
+  <button class="tab" onclick="sw('sdamap',this)">SDA Map</button>
 </div>
 
 <div id="panel-screen" class="panel on">
@@ -251,6 +252,48 @@ tr.dr:hover td{background:#fafaf9}
     <tbody id="dtbody"></tbody>
   </table></div>
   <p style="font-size:10px;color:#888;margin-top:8px">Source: NDIS SDA Demand Data, December 2024</p>
+</div>
+
+<div id="panel-sdamap" class="panel">
+  <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));align-items:end">
+    <div class="fg"><label>State</label>
+      <select id="msst" onchange="renderSdaMap()">
+        <option value="">All states</option>
+        <option value="vic">VIC</option>
+        <option value="nsw">NSW</option>
+        <option value="qld">QLD</option>
+      </select>
+    </div>
+    <div class="fg" style="display:flex;gap:14px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
+        <input type="checkbox" id="msl-radius" checked onchange="renderSdaMap()">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e40af"></span>
+        Radius
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
+        <input type="checkbox" id="msl-existing" checked onchange="renderSdaMap()">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0F6E56"></span>
+        Existing
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
+        <input type="checkbox" id="msl-permitted" checked onchange="renderSdaMap()">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ea580c"></span>
+        Permitted
+      </label>
+    </div>
+    <div class="fg"><label>Search address/suburb</label>
+      <input type="text" id="msq" placeholder="e.g. Thornbury" oninput="renderSdaMap()">
+    </div>
+    <div class="fg" style="text-align:right">
+      <span id="msmap-counts" style="font-size:11px;color:#6B7280"></span>
+    </div>
+  </div>
+  <div id="sdamap" style="width:100%;height:640px;border-radius:8px;overflow:hidden;background:#e5e7eb;position:relative">
+    <div id="sdamap-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#6B7280;padding:20px">
+      Loading map data&hellip;
+    </div>
+  </div>
+  <p style="font-size:10px;color:#888;margin-top:8px">Pin layers are uploaded via the admin panel. Click a pin for address, area, frontage and zoning details.</p>
 </div>
 </div>
 <script>
@@ -5328,7 +5371,171 @@ function sw(id,el){
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('on');});
   document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('on');});
   el.classList.add('on');document.getElementById('panel-'+id).classList.add('on');
-  if(id==='pricing')renderPricing();if(id==='demand')renderDemand();
+  if(id==='pricing')renderPricing();
+  if(id==='demand')renderDemand();
+  if(id==='sdamap')initSdaMap();
+}
+
+// =============================================================================
+// SDA Market Map (lazy loaded — Maps JS only fetched the first time
+// the SDA Map tab is opened)
+// =============================================================================
+var GMAPS_KEY = '{{GOOGLE_MAPS_API_KEY}}';
+var sdaMapInstance = null;
+var sdaMapMarkers = [];
+var sdaMapInfoWindow = null;
+var sdaMapAllPins = null;     // cached after first fetch
+var sdaMapLoading = false;
+var sdaMapLoaded = false;
+
+function loadGoogleMapsJS(){
+  return new Promise(function(resolve, reject){
+    if (window.google && window.google.maps) { resolve(); return; }
+    if (!GMAPS_KEY || GMAPS_KEY.length < 10) {
+      reject(new Error('Maps API key not configured on server'));
+      return;
+    }
+    window.__sdaMapsCallback = function(){ resolve(); };
+    var s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + GMAPS_KEY + '&callback=__sdaMapsCallback&loading=async';
+    s.async = true; s.defer = true;
+    s.onerror = function(){ reject(new Error('Maps JS failed to load')); };
+    document.head.appendChild(s);
+  });
+}
+
+function initSdaMap(){
+  if (sdaMapInstance) {
+    // Already initialised — just refresh in case data changed
+    renderSdaMap();
+    return;
+  }
+  if (sdaMapLoading) return;
+  sdaMapLoading = true;
+  var emptyEl = document.getElementById('sdamap-empty');
+  if (emptyEl) emptyEl.textContent = 'Loading map…';
+
+  loadGoogleMapsJS()
+    .then(function(){
+      // Centre on Melbourne by default
+      sdaMapInstance = new google.maps.Map(document.getElementById('sdamap'), {
+        center: { lat: -37.8136, lng: 144.9631 },
+        zoom: 10,
+        mapTypeControl: true,
+        streetViewControl: false,
+        fullscreenControl: true
+      });
+      sdaMapInfoWindow = new google.maps.InfoWindow();
+      // Fetch pins
+      return fetch('/api/sda-market', {credentials: 'same-origin'}).then(function(r){return r.json();});
+    })
+    .then(function(pins){
+      sdaMapAllPins = Array.isArray(pins) ? pins : [];
+      sdaMapLoaded = true;
+      sdaMapLoading = false;
+      if (emptyEl) emptyEl.style.display = 'none';
+      if (!sdaMapAllPins.length) {
+        if (emptyEl) {
+          emptyEl.style.display = 'flex';
+          emptyEl.innerHTML = 'No SDA market data uploaded yet. <br>Admins can upload via Admin → Upload SDA market.';
+        }
+        return;
+      }
+      renderSdaMap();
+    })
+    .catch(function(err){
+      sdaMapLoading = false;
+      if (emptyEl) {
+        emptyEl.style.display = 'flex';
+        emptyEl.innerHTML = 'Map unavailable: ' + (err.message || err);
+      }
+    });
+}
+
+function renderSdaMap(){
+  if (!sdaMapInstance || !sdaMapAllPins) return;
+  // Clear existing markers
+  sdaMapMarkers.forEach(function(m){ m.setMap(null); });
+  sdaMapMarkers = [];
+
+  var stateFilter = (document.getElementById('msst') || {}).value || '';
+  var query = ((document.getElementById('msq') || {}).value || '').trim().toLowerCase();
+  var enabledLayers = {
+    radius:    (document.getElementById('msl-radius') || {}).checked,
+    existing:  (document.getElementById('msl-existing') || {}).checked,
+    permitted: (document.getElementById('msl-permitted') || {}).checked
+  };
+  var layerColors = { radius: '#1e40af', existing: '#0F6E56', permitted: '#ea580c' };
+
+  var counts = { radius: 0, existing: 0, permitted: 0 };
+  var bounds = new google.maps.LatLngBounds();
+  var anyShown = false;
+
+  sdaMapAllPins.forEach(function(p){
+    if (!enabledLayers[p.layer]) return;
+    if (stateFilter && p.state !== stateFilter) return;
+    if (query) {
+      var hay = ((p.address||'') + ' ' + (p.suburb||'')).toLowerCase();
+      if (hay.indexOf(query) === -1) return;
+    }
+    counts[p.layer]++;
+    var color = layerColors[p.layer] || '#666';
+    var marker = new google.maps.Marker({
+      position: { lat: p.lat, lng: p.lng },
+      map: sdaMapInstance,
+      title: p.address,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 7,
+        fillColor: color,
+        fillOpacity: 0.85,
+        strokeColor: '#fff',
+        strokeWeight: 1.5
+      }
+    });
+    marker.addListener('click', function(){
+      var info = '<div style="font-size:12px;line-height:1.5;max-width:280px">'
+        + '<div style="font-weight:700;color:#002060;margin-bottom:4px">' + escHtml(p.address) + '</div>'
+        + '<div><strong>Layer:</strong> <span style="color:'+color+';font-weight:700">'+p.layer.charAt(0).toUpperCase()+p.layer.slice(1)+'</span></div>'
+        + (p.area_m2 ? '<div><strong>Area:</strong> ' + p.area_m2 + ' m²</div>' : '')
+        + (p.frontage_m ? '<div><strong>Frontage:</strong> ' + p.frontage_m + ' m</div>' : '')
+        + (p.planning_zones ? '<div><strong>Zone:</strong> ' + escHtml(p.planning_zones) + '</div>' : '')
+        + (p.notes ? '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb;color:#6B7280;font-size:11px;white-space:pre-wrap">' + escHtml(p.notes) + '</div>' : '')
+        + '</div>';
+      sdaMapInfoWindow.setContent(info);
+      sdaMapInfoWindow.open(sdaMapInstance, marker);
+    });
+    sdaMapMarkers.push(marker);
+    bounds.extend(marker.getPosition());
+    anyShown = true;
+  });
+
+  // Update counts display
+  var countsEl = document.getElementById('msmap-counts');
+  if (countsEl) {
+    countsEl.innerHTML = 'Showing: '
+      + '<strong style="color:#1e40af">'+counts.radius+'</strong> Radius | '
+      + '<strong style="color:#0F6E56">'+counts.existing+'</strong> Existing | '
+      + '<strong style="color:#ea580c">'+counts.permitted+'</strong> Permitted';
+  }
+
+  // Auto-fit to visible markers (but don't over-zoom on a single pin)
+  if (anyShown) {
+    sdaMapInstance.fitBounds(bounds);
+    if (sdaMapMarkers.length === 1) {
+      // Single pin — back zoom off so we don't end up at street level
+      var listener = google.maps.event.addListenerOnce(sdaMapInstance, 'idle', function(){
+        if (sdaMapInstance.getZoom() > 15) sdaMapInstance.setZoom(15);
+      });
+    }
+  }
+}
+
+// Tiny HTML-escape helper for use in info windows
+function escHtml(s){
+  return String(s||'').replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
 }
 // RP Data link handler — uses event delegation to avoid quote-escaping issues
 document.addEventListener('click', function(e) {

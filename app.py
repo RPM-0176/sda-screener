@@ -67,6 +67,7 @@ form.inline{display:inline}
     <a href="/admin/downloads" class="tab {% if section=='downloads' %}on{% endif %}">Downloads</a>
     <a href="/admin/users" class="tab {% if section=='users' %}on{% endif %}">Manage users</a>
     <a href="/admin/upload_page" class="tab" style="background:#0F6E56;color:#fff">Upload CSV data</a>
+    <a href="/admin/upload_sda_page" class="tab" style="background:#185FA5;color:#fff">Upload SDA market</a>
   </div>
 
   {% if section == 'activity' %}
@@ -248,6 +249,109 @@ states.forEach(function(st){
 </script>
 </body></html>"""
 
+UPLOAD_SDA_HTML = """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Upload SDA Market - SDA Screener</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#f3f4f6}
+.top{background:#002060;color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center}
+.top h1{font-size:15px;font-weight:700}
+.top a{color:#93c5fd;font-size:13px;text-decoration:none;margin-left:16px}
+.wrap{max-width:1100px;margin:0 auto;padding:24px}
+.card{background:#fff;border-radius:8px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.1);margin-bottom:16px}
+.card h2{font-size:14px;font-weight:700;color:#002060;margin-bottom:8px;padding-bottom:8px;border-bottom:2px solid #e5e7eb}
+.layer-section{margin-bottom:24px}
+.layer-title{font-size:13px;font-weight:700;color:#002060;margin:18px 0 10px;padding:6px 10px;border-radius:4px;display:inline-flex;align-items:center;gap:6px}
+.layer-title.radius{background:#dbeafe;color:#1e40af}
+.layer-title.existing{background:#dcfce7;color:#166534}
+.layer-title.permitted{background:#fed7aa;color:#9a3412}
+.dot{width:10px;height:10px;border-radius:50%}
+.dot.radius{background:#1e40af}
+.dot.existing{background:#0F6E56}
+.dot.permitted{background:#ea580c}
+.upload-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px}
+.state-card{border:2px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center}
+.state-card.loaded{border-color:#0F6E56;background:#f0fdf4}
+.state-name{font-size:14px;font-weight:800;color:#002060;margin-bottom:6px}
+.state-pins{font-size:12px;color:#0F6E56;font-weight:600;margin-bottom:2px}
+.state-date{font-size:10px;color:#6B7280;margin-bottom:8px}
+.state-none{font-size:11px;color:#9CA3AF;margin-bottom:8px}
+.upload-form{display:flex;flex-direction:column;gap:6px}
+.upload-form input[type=file]{font-size:11px}
+.btn{padding:7px 12px;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700}
+.blue{background:#002060;color:#fff;width:100%}
+.msg{padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:13px}
+.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.er{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.help{font-size:11px;color:#6B7280;line-height:1.5;background:#f9fafb;padding:10px 14px;border-radius:6px;margin-bottom:14px;border-left:3px solid #185FA5}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>SDA Screener - Upload SDA Market Data</h1>
+  <div>
+    <a href="/admin">Admin panel</a>
+    <a href="/admin/upload_page">Property data</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/logout">Sign out</a>
+  </div>
+</div>
+<div class="wrap">
+  <div id="msg-area"></div>
+
+  <div class="card">
+    <h2>SDA Market Map data</h2>
+    <p class="help">Three pin layers for the SDA Market Map: <strong>Radius</strong> (your own pipeline + built projects), <strong>Existing SDA</strong> (operating SDA + group homes), <strong>Permitted</strong> (approved but not yet built). Upload one CSV per layer-state combination. Each upload <strong>replaces</strong> all pins for that layer+state. CSVs should be LandChecker-format with at minimum: Address, Suburb, State, Coordinates (the lng,lat pair).</p>
+    <div id="layer-areas"></div>
+  </div>
+</div>
+<script>
+var status = {{STATUS}};
+var msg = '{{MSG}}';
+var msgType = '{{MSG_TYPE}}';
+var states = ['vic','nsw','qld'];
+var stateLabels = {vic:'VIC',nsw:'NSW',qld:'QLD'};
+var layers = [
+  {key:'radius',    label:'Radius pipeline / built'},
+  {key:'existing',  label:'Existing SDA + group homes'},
+  {key:'permitted', label:'Permitted / approved'}
+];
+
+if(msg){
+  var d = document.getElementById('msg-area');
+  d.innerHTML = '<div class="msg '+msgType+'">'+decodeURIComponent(msg.replace(/[+]/g,' '))+'</div>';
+}
+
+var areas = document.getElementById('layer-areas');
+layers.forEach(function(L){
+  var section = '<div class="layer-section">'
+    + '<div class="layer-title '+L.key+'"><span class="dot '+L.key+'"></span>'+L.label+'</div>'
+    + '<div class="upload-grid">';
+  states.forEach(function(st){
+    var s = (status[L.key] && status[L.key][st]) || null;
+    var loaded = s && s.pins > 0;
+    var html = '<div class="state-card '+(loaded?'loaded':'')+'">'
+      + '<div class="state-name">'+stateLabels[st]+'</div>';
+    if(loaded){
+      html += '<div class="state-pins">'+s.pins+' pins</div>'
+        + '<div class="state-date">Uploaded: '+s.uploaded_at.substring(0,16)+' by '+s.uploaded_by+'</div>';
+    } else {
+      html += '<div class="state-none">No data uploaded</div>';
+    }
+    html += '<form class="upload-form" method="POST" action="/admin/upload_sda" enctype="multipart/form-data">'
+      + '<input type="hidden" name="layer" value="'+L.key+'">'
+      + '<input type="hidden" name="state" value="'+st+'">'
+      + '<input type="file" name="csvfile" accept=".csv" required>'
+      + '<button type="submit" class="btn blue">'+(loaded?'Replace ':'Upload ')+stateLabels[st]+'</button>'
+      + '</form></div>';
+    section += html;
+  });
+  section += '</div></div>';
+  areas.innerHTML += section;
+});
+</script>
+</body></html>"""
+
 """SDA Property Screener - Team Server"""
 from flask import Flask, request, session, redirect, url_for, jsonify, send_file, abort, make_response
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -323,6 +427,24 @@ def init_db():
             value TEXT,
             updated_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS sda_market (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            layer TEXT NOT NULL,           -- 'radius' | 'existing' | 'permitted'
+            state TEXT NOT NULL,           -- vic | nsw | qld
+            address TEXT NOT NULL,
+            suburb TEXT,
+            postcode TEXT,
+            area_m2 REAL,
+            frontage_m REAL,
+            planning_zones TEXT,
+            notes TEXT,
+            lat REAL,
+            lng REAL,
+            uploaded_by TEXT,
+            uploaded_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sda_market_layer ON sda_market(layer);
+        CREATE INDEX IF NOT EXISTS idx_sda_market_state ON sda_market(state);
     """)
     db.commit()
     existing = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -829,7 +951,13 @@ def logout():
 @login_required
 def dashboard():
     log_event('dashboard_view')
-    return make_response(get_dashboard_html())
+    html = get_dashboard_html()
+    # Inject the Maps JS API key for the SDA Map tab (browser-side rendering).
+    # The same GOOGLE_MAPS_API_KEY env var is reused — for browser use, ensure
+    # Application restrictions in Google Cloud Console include HTTP referrer
+    # for your Railway domain, AND that Maps JavaScript API is enabled.
+    html = html.replace('{{GOOGLE_MAPS_API_KEY}}', GOOGLE_MAPS_API_KEY or '')
+    return make_response(html)
 
 @app.route('/api/log', methods=['POST'])
 @login_required
@@ -977,6 +1105,312 @@ def upload_csv():
         return redirect('/admin/upload_page?msg='+state.upper()+'+uploaded+('+str(0)+'+properties)&msg_type=ok')
     except: return redirect('/admin/upload_page?msg=Upload+failed&msg_type=er')
 
+
+# =============================================================================
+# SDA Market Map — three layers (Radius / Existing / Permitted)
+# Stores per-property pin data for the SDA market map. CSVs come from
+# LandChecker exports which already have lat/lng in a 'Coordinates' column,
+# so no geocoding is needed at upload time.
+# =============================================================================
+
+def _parse_landchecker_csv(csv_text):
+    """Parse a LandChecker-style CSV. Returns list of dicts ready for insertion.
+    Required column: Address. Coordinates column is "lng, lat" pair string."""
+    import csv as _csv, io
+    reader = _csv.DictReader(io.StringIO(csv_text))
+    rows = []
+    skipped = 0
+    for raw in reader:
+        # Normalise keys (case + whitespace insensitive)
+        r = {(k or '').strip().lower(): (v or '').strip() for k, v in raw.items()}
+        addr = r.get('address') or ''
+        if not addr:
+            skipped += 1
+            continue
+        # Coordinates are "lng, lat" e.g. "145.17783486692818, -37.976366172276954"
+        lat, lng = None, None
+        coords = r.get('coordinates') or ''
+        if coords:
+            parts = [p.strip() for p in coords.split(',')]
+            if len(parts) == 2:
+                try:
+                    lng = float(parts[0])
+                    lat = float(parts[1])
+                except ValueError:
+                    pass
+        # Combine 3 Note fields into one searchable notes blob
+        note_blob = []
+        for n in ('1', '2', '3'):
+            txt = r.get(f'note {n}') or ''
+            author = r.get(f'note {n} author') or ''
+            date = r.get(f'note {n} date') or ''
+            if txt:
+                if author or date:
+                    note_blob.append(f'[{date} {author}] {txt}'.strip())
+                else:
+                    note_blob.append(txt)
+        try:
+            area = float(r.get('area') or 0) or None
+        except ValueError:
+            area = None
+        try:
+            frontage = float(r.get('frontage (m)') or r.get('frontage') or 0) or None
+        except ValueError:
+            frontage = None
+        rows.append({
+            'address': addr,
+            'suburb': (r.get('suburb') or '').upper(),
+            'state': (r.get('state') or '').lower(),
+            'postcode': r.get('postcode') or '',
+            'area_m2': area,
+            'frontage_m': frontage,
+            'planning_zones': r.get('planning zones') or '',
+            'notes': '\n'.join(note_blob) if note_blob else '',
+            'lat': lat,
+            'lng': lng,
+        })
+    return rows, skipped
+
+
+def _parse_radius_pipeline_csv(csv_text):
+    """Parse the Radius internal pipeline CSV format (Name / Dwelling / Location).
+
+    Format has nested sections with section headers, the column header row
+    'Name,Dwelling,Location', and 'New Item' separators. We extract any row that
+    has a non-empty Location, treating it as a property regardless of section.
+    Returns list of dicts (without lat/lng — caller must geocode)."""
+    import csv as _csv, io
+    reader = _csv.reader(io.StringIO(csv_text))
+    rows = []
+    skipped = 0
+    section = None
+    for raw in reader:
+        cells = [(c or '').strip() for c in raw]
+        if not cells or all(c == '' for c in cells):
+            continue
+        # Section header (single non-empty cell, rest empty)
+        if cells[0] and (len(cells) == 1 or not any(cells[1:])):
+            section = cells[0]
+            continue
+        # Column header row — skip
+        if cells[0].lower() == 'name' and len(cells) > 1 and cells[1].lower() == 'dwelling':
+            continue
+        # Padding row 'New Item,,'
+        if cells[0].lower() == 'new item':
+            continue
+        # Data row: Name, Dwelling, Location
+        name = cells[0]
+        dwelling = cells[1] if len(cells) > 1 else ''
+        location = cells[2] if len(cells) > 2 else ''
+        # Need at least a location to geocode
+        if not location:
+            skipped += 1
+            continue
+        # Try to parse a state code from the location string
+        state = ''
+        for st in ('VIC', 'NSW', 'QLD'):
+            if st in location.upper():
+                state = st.lower()
+                break
+        # Notes: Dwelling type + section context
+        notes_parts = []
+        if dwelling:
+            notes_parts.append('Dwelling: ' + dwelling)
+        if section and section not in ('SDA Project Pipeline', 'All SDA'):
+            notes_parts.append('Status: ' + section)
+        rows.append({
+            'address': location,             # use the cleaner Google-formatted location for geocoding
+            'suburb': '',                    # filled in if geocoder returns it
+            'state': state,
+            'postcode': '',
+            'area_m2': None,
+            'frontage_m': None,
+            'planning_zones': '',
+            'notes': '\n'.join(notes_parts),
+            'lat': None,
+            'lng': None,
+        })
+    return rows, skipped
+
+
+def _detect_csv_format(csv_text):
+    """Return 'landchecker' or 'radius_pipeline' based on header inspection."""
+    head = csv_text[:2000].lower()
+    if 'coordinates' in head and 'planning zones' in head:
+        return 'landchecker'
+    if 'sda project pipeline' in head or ('name,dwelling,location' in head):
+        return 'radius_pipeline'
+    # Fallback: assume landchecker if it has 'address' as the first header
+    return 'landchecker'
+
+
+def _geocode_address(addr):
+    """Server-side geocode a single address. Returns (lat, lng) or (None, None)."""
+    if not addr or not GOOGLE_MAPS_API_KEY:
+        return (None, None)
+    try:
+        url = ('https://maps.googleapis.com/maps/api/geocode/json'
+               '?address=' + quote_plus(addr) + '&region=au'
+               '&key=' + GOOGLE_MAPS_API_KEY)
+        data = _http_get_json(url, timeout=10)
+        if data.get('status') == 'OK' and data.get('results'):
+            loc = data['results'][0].get('geometry', {}).get('location', {})
+            if 'lat' in loc and 'lng' in loc:
+                return (loc['lat'], loc['lng'])
+    except Exception:
+        pass
+    return (None, None)
+
+
+@app.route('/admin/upload_sda', methods=['POST'])
+@admin_required
+def upload_sda_market():
+    """Upload an SDA market CSV. Accepts either:
+      - LandChecker export format (has Coordinates column — no geocoding needed)
+      - Radius pipeline format (Name / Dwelling / Location — geocoded server-side)
+    Form fields: layer (radius|existing|permitted), state (vic|nsw|qld), csvfile"""
+    layer = (request.form.get('layer') or '').lower()
+    state = (request.form.get('state') or '').lower()
+    if layer not in ('radius', 'existing', 'permitted'):
+        return redirect('/admin/upload_sda_page?msg=Invalid+layer&msg_type=er')
+    if state not in ('vic', 'nsw', 'qld'):
+        return redirect('/admin/upload_sda_page?msg=Invalid+state&msg_type=er')
+    f = request.files.get('csvfile')
+    if not f:
+        return redirect('/admin/upload_sda_page?msg=No+file+selected&msg_type=er')
+    try:
+        csv_text = f.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            csv_text = f.read().decode('latin-1')
+        except Exception:
+            return redirect('/admin/upload_sda_page?msg=Could+not+decode+file&msg_type=er')
+
+    fmt = _detect_csv_format(csv_text)
+    try:
+        if fmt == 'radius_pipeline':
+            rows, skipped = _parse_radius_pipeline_csv(csv_text)
+        else:
+            rows, skipped = _parse_landchecker_csv(csv_text)
+    except Exception as e:
+        return redirect(f'/admin/upload_sda_page?msg=Parse+error:+{e}&msg_type=er')
+    if not rows:
+        return redirect('/admin/upload_sda_page?msg=No+rows+parsed+(check+CSV+structure)&msg_type=er')
+
+    # Geocode any rows that don't already have lat/lng (Radius pipeline format)
+    geocode_failed = 0
+    for r in rows:
+        if r['lat'] is None or r['lng'] is None:
+            lat, lng = _geocode_address(r['address'])
+            if lat is not None:
+                r['lat'] = lat
+                r['lng'] = lng
+            else:
+                geocode_failed += 1
+
+    db = get_db()
+    # For Radius pipeline format, the CSV may span multiple states. We delete
+    # all rows for this layer (across all states) and let the per-row state
+    # detection determine where each pin ends up. For LandChecker format,
+    # only delete the specific (layer, state) combo.
+    if fmt == 'radius_pipeline':
+        db.execute('DELETE FROM sda_market WHERE layer=?', (layer,))
+    else:
+        db.execute('DELETE FROM sda_market WHERE layer=? AND state=?', (layer, state))
+    by = request.current_user['username']
+    inserted = 0
+    state_counts = {}
+    for r in rows:
+        # For Radius pipeline format, prefer the auto-detected state from each row.
+        # For LandChecker, force form-selected state (handles mixed CSVs gracefully).
+        row_state = r['state'] if (fmt == 'radius_pipeline' and r['state']) else state
+        state_counts[row_state] = state_counts.get(row_state, 0) + 1
+        db.execute("""INSERT INTO sda_market
+                      (layer, state, address, suburb, postcode, area_m2, frontage_m,
+                       planning_zones, notes, lat, lng, uploaded_by)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (layer, row_state, r['address'], r['suburb'], r['postcode'],
+                    r['area_m2'], r['frontage_m'], r['planning_zones'],
+                    r['notes'], r['lat'], r['lng'], by))
+        inserted += 1
+    db.commit()
+    db.close()
+    msg_parts = [f'{layer.upper()}+uploaded:+{inserted}+pins']
+    if state_counts and fmt == 'radius_pipeline':
+        bd = '+'.join(f'{k.upper()}:{v}' for k, v in sorted(state_counts.items()))
+        msg_parts.append('split:+' + bd)
+    if skipped:
+        msg_parts.append(f'{skipped}+skipped')
+    if geocode_failed:
+        msg_parts.append(f'{geocode_failed}+failed+to+geocode')
+    if fmt == 'radius_pipeline':
+        msg_parts.append('(Radius+pipeline+format,+geocoded+server-side)')
+    return redirect('/admin/upload_sda_page?msg=' + '+•+'.join(msg_parts) + '&msg_type=ok')
+
+
+@app.route('/api/sda-market')
+@login_required
+def api_sda_market():
+    """Return all SDA market pins.
+    Query params (optional): layer, state — to filter."""
+    layer = (request.args.get('layer') or '').lower()
+    state = (request.args.get('state') or '').lower()
+    sql = ('SELECT id, layer, state, address, suburb, postcode, area_m2, frontage_m, '
+           'planning_zones, notes, lat, lng FROM sda_market WHERE lat IS NOT NULL AND lng IS NOT NULL')
+    args = []
+    if layer in ('radius', 'existing', 'permitted'):
+        sql += ' AND layer=?'
+        args.append(layer)
+    if state in ('vic', 'nsw', 'qld'):
+        sql += ' AND state=?'
+        args.append(state)
+    db = get_db()
+    rows = db.execute(sql, args).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/sda-market/status')
+@login_required
+def api_sda_market_status():
+    """Return per-(layer,state) pin counts and last-upload metadata."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT layer, state, COUNT(*) AS pins, MAX(uploaded_at) AS uploaded_at,
+               MAX(uploaded_by) AS uploaded_by
+        FROM sda_market GROUP BY layer, state
+    """).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/admin/upload_sda_page')
+@admin_required
+def upload_sda_page():
+    """Render the SDA market upload page."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT layer, state, COUNT(*) AS pins, MAX(uploaded_at) AS uploaded_at,
+               MAX(uploaded_by) AS uploaded_by
+        FROM sda_market GROUP BY layer, state
+    """).fetchall()
+    db.close()
+    status = {}
+    for r in rows:
+        status.setdefault(r['layer'], {})[r['state']] = {
+            'pins': r['pins'],
+            'uploaded_at': r['uploaded_at'],
+            'uploaded_by': r['uploaded_by']
+        }
+    msg = request.args.get('msg', '')
+    msg_type = request.args.get('msg_type', 'ok')
+    html = (UPLOAD_SDA_HTML
+            .replace('{{STATUS}}', json.dumps(status))
+            .replace('{{MSG}}', msg)
+            .replace('{{MSG_TYPE}}', msg_type))
+    return make_response(html)
+
+
 @app.route('/admin/users/add_form', methods=['POST'])
 @admin_required
 def add_user_form():
@@ -1055,4 +1489,3 @@ def admin_users_api():
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
-

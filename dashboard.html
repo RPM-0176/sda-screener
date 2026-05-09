@@ -245,8 +245,12 @@ tr.dr:hover td{background:#fafaf9}
       <input type="number" id="hmdem" placeholder="e.g. 50" oninput="renderHeatmap()" min="0">
     </div>
     <div class="fg" style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#6B7280">
-      <span style="font-weight:600;color:#374151">Heat colour</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:10px;background:linear-gradient(to right,#FEF3C7,#F59E0B,#A32D2D);border-radius:2px"></span>Low \u2192 high demand</span>
+      <span style="font-weight:600;color:#374151">Circle colour</span>
+      <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0F6E56"></span>Undersupply</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9CA3AF"></span>Balanced</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#A32D2D"></span>Oversupply</span>
+      </span>
     </div>
     <div class="fg" style="text-align:right">
       <span id="hmcounts" style="font-size:11px;color:#6B7280"></span>
@@ -255,7 +259,7 @@ tr.dr:hover td{background:#fafaf9}
   <div id="propmap" style="width:100%;height:640px;border-radius:8px;overflow:hidden;background:#e5e7eb;position:relative">
     <div id="propmap-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#6B7280;padding:20px;flex-direction:column;gap:6px">
       <div style="font-weight:600;color:#374151">Heatmap loads when this tab is opened</div>
-      <div>Each rectangle shows an SA4 area, coloured by SDA demand,<br>with a count badge for properties matching your Screener filters.</div>
+      <div>Each circle shows an SA4 area, coloured by under/oversupply<br>(green = undersupply, red = oversupply, grey = balanced).<br>Size scales with demand. Number badge shows properties matching your Screener filters.</div>
     </div>
   </div>
   <p style="font-size:10px;color:#888;margin-top:8px">Click an SA4 area to filter the Screener to just those properties. Filters from the Screener tab also constrain which properties show in each badge.</p>
@@ -6338,20 +6342,22 @@ function renderSdaMap(){
 }
 
 // =============================================================================
-// Demand Heatmap — SA4 areas coloured by SDA demand, with property-count badges.
-// Replaces the per-property pin map. Lazy-init on first tab open.
+// Demand Heatmap — SA4 areas coloured by under/oversupply, with property-count
+// badges. Replaces the per-property pin map. Lazy-init on first tab open.
 //
 // How it works:
 //  1. We need a centroid for each SA4 to draw on the map. Centroids are derived
 //     from one geocoded property per SA4 — far cheaper than geocoding everything.
 //  2. Geocoded lat/lng are cached in localStorage (same key as the old pin map,
 //     so prior geocodes are reused).
-//  3. Each SA4 with at least one property becomes a circle marker:
+//  3. SA3 capacity (sum of cap13 across all SA3s in each SA4) is aggregated up
+//     to give an SA4-level under/oversupply gap = demand - cap13.
+//  4. Each SA4 with at least one property becomes a circle marker:
 //     - Position: centroid (avg lat/lng of geocoded properties in that SA4)
-//     - Colour:   demand intensity (yellow → orange → dark red)
-//     - Size:     scaled by sqrt(demand)
+//     - Colour:   green = undersupply, red = oversupply, grey = balanced
+//     - Size:     scaled by sqrt(demand) — bigger market, bigger circle
 //     - Label:    count of properties in that SA4 matching screener filters
-//  4. Click a circle → set Screener SA4 filter to that area + switch tabs.
+//  5. Click a circle → set Screener SA4 filter to that area + switch tabs.
 // =============================================================================
 var HEATMAP_GEO_KEY = 'sda_screener_geocode_cache_v1';
 var hmInstance = null;
@@ -6453,6 +6459,20 @@ function hmBuildSA4Summary() {
     }
     bySa4[key].propertyCount++;
   });
+  // Aggregate SA3 capacity (1-3BR) up to SA4 level. Sum cap13 across all SA3
+  // records belonging to each SA4. This gives us an SA4-level under/oversupply
+  // number for the heatmap colour.
+  if (typeof SA3D !== 'undefined' && Array.isArray(SA3D)) {
+    var capBySa4 = {};
+    SA3D.forEach(function(r){
+      if (!r || !r.sa4) return;
+      capBySa4[r.sa4] = (capBySa4[r.sa4] || 0) + (r.cap13 || 0);
+    });
+    Object.keys(bySa4).forEach(function(k){
+      bySa4[k].cap13 = capBySa4[k] || 0;
+      bySa4[k].gap   = bySa4[k].demand - bySa4[k].cap13;
+    });
+  }
   var arr = Object.keys(bySa4).map(function(k){ return bySa4[k]; });
   // Apply min-demand filter
   arr = arr.filter(function(s){ return s.demand >= minDem; });
@@ -6474,17 +6494,21 @@ function hmGetSA4Centroid(sa4Summary, sourceProps) {
   return { lat: lat / coords.length, lng: lng / coords.length };
 }
 
-// Demand → fill colour (light yellow → orange → dark red)
-function hmDemandColour(demand, maxDemand) {
-  if (!maxDemand || maxDemand <= 0) return '#F59E0B';
-  var t = Math.min(1, demand / maxDemand);
-  // Three-stop gradient: #FEF3C7 (light) → #F59E0B (mid) → #A32D2D (high)
-  if (t < 0.5) {
-    var k = t / 0.5;
-    return hmLerpColor('#FEF3C7', '#F59E0B', k);
+// Gap → fill colour. Matches the rest of the tool: green = undersupply (good
+// for investor), red = oversupply (bad), grey = balanced. Intensity scales with
+// magnitude relative to the largest absolute gap on the visible map.
+function hmGapColour(gap, maxAbsGap) {
+  if (gap === 0 || gap == null) return '#9CA3AF'; // neutral grey
+  if (!maxAbsGap || maxAbsGap <= 0) return gap > 0 ? '#0F6E56' : '#A32D2D';
+  var t = Math.min(1, Math.abs(gap) / maxAbsGap);
+  // Floor t at 0.25 so even small gaps are visibly tinted, not pale-pale
+  t = 0.25 + t * 0.75;
+  if (gap > 0) {
+    // Light green -> deep green (undersupply intensifies)
+    return hmLerpColor('#D1FAE5', '#0F6E56', t);
   } else {
-    var k2 = (t - 0.5) / 0.5;
-    return hmLerpColor('#F59E0B', '#A32D2D', k2);
+    // Light red -> deep red (oversupply intensifies)
+    return hmLerpColor('#FECACA', '#A32D2D', t);
   }
 }
 function hmLerpColor(a, b, t) {
@@ -6522,26 +6546,34 @@ function renderHeatmap(){
   });
 
   function drawAll() {
-    var maxDemand = 0;
-    summary.forEach(function(s){ if (s.demand > maxDemand) maxDemand = s.demand; });
+    // Compute max-absolute-gap so colour intensity is relative to what's on screen
+    var maxAbsGap = 0;
+    summary.forEach(function(s){
+      var g = (typeof s.gap === 'number') ? Math.abs(s.gap) : 0;
+      if (g > maxAbsGap) maxAbsGap = g;
+    });
     var bounds = new google.maps.LatLngBounds();
     var drawn = 0;
     summary.forEach(function(s){
       if (!s.centroid) return;
-      var fillColor = hmDemandColour(s.demand, maxDemand);
-      // Size scales by sqrt(demand) so it's visually proportional. 
+      var gap = (typeof s.gap === 'number') ? s.gap : 0;
+      var fillColor = hmGapColour(gap, maxAbsGap);
+      // Size scales by sqrt(demand) so it's visually proportional to market size.
       var scale = 12 + Math.sqrt(s.demand) * 1.4;
       scale = Math.min(40, Math.max(12, scale));
+      var statusText = gap > 0 ? gap + ' under'
+                     : (gap === 0 ? 'balanced'
+                     : Math.abs(gap) + ' over');
       var marker = new google.maps.Marker({
         position: s.centroid,
         map: hmInstance,
-        title: s.sa4 + ' — demand ' + s.demand + ', ' + s.propertyCount + ' propert' + (s.propertyCount===1?'y':'ies'),
+        title: s.sa4 + ' \u2014 demand ' + s.demand + ', capacity ' + (s.cap13||0) + ' (' + statusText + '), ' + s.propertyCount + ' propert' + (s.propertyCount===1?'y':'ies'),
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           fillColor: fillColor,
           fillOpacity: 0.78,
-          strokeColor: '#7c2d12',
-          strokeWeight: 1.5,
+          strokeColor: '#374151',
+          strokeWeight: 1.2,
           scale: scale
         }
       });
@@ -6563,12 +6595,17 @@ function renderHeatmap(){
         }
       });
       marker.addListener('click', function(){
-        var html = '<div style="font-family:Arial;min-width:220px;max-width:280px">'
+        var statusFull = gap > 0 ? '<span style="color:#0F6E56">'+gap+' places undersupply</span>'
+                       : (gap === 0 ? '<span style="color:#666">Balanced</span>'
+                       : '<span style="color:#A32D2D">'+Math.abs(gap)+' places oversupply</span>');
+        var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
           + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">' + escHtml(s.sa4) + '</div>'
           + '<div style="font-size:11px;color:#666;margin-bottom:8px">' + (s.state||'').toUpperCase() + '</div>'
           + '<div style="font-size:11px;line-height:1.6">'
-          +   '<div>SDA participants: <b>' + s.demand + '</b></div>'
-          +   '<div>Properties matching filters: <b style="color:#185FA5">' + s.propertyCount + '</b></div>'
+          +   '<div>SDA participants needing housing: <b>' + s.demand + '</b></div>'
+          +   '<div>1-3BR dwelling capacity: <b>' + (s.cap13||0) + ' places</b></div>'
+          +   '<div style="margin-top:4px;padding-top:4px;border-top:1px solid #eee"><b>' + statusFull + '</b></div>'
+          +   '<div style="margin-top:6px">Properties matching filters: <b style="color:#185FA5">' + s.propertyCount + '</b></div>'
           + '</div>'
           + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
           + '<a href="javascript:void(0)" onclick="hmFilterScreenerToSA4(\'' + escHtml(s.sa4).replace(/'/g, "\\'") + '\')" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">Filter Screener to this SA4 \u2192</a>'
@@ -6589,7 +6626,12 @@ function renderHeatmap(){
     }
     if (countsEl) {
       var totalProps = summary.reduce(function(s,x){return s + x.propertyCount;}, 0);
-      countsEl.textContent = drawn + ' SA4 area' + (drawn===1?'':'s') + ' \u2022 ' + totalProps + ' propert' + (totalProps===1?'y':'ies') + ' total';
+      var underCount = summary.filter(function(s){return (s.gap||0) > 0;}).length;
+      var overCount  = summary.filter(function(s){return (s.gap||0) < 0;}).length;
+      countsEl.textContent = drawn + ' SA4' + (drawn===1?'':'s') + ' \u2022 '
+        + underCount + ' under-supplied \u2022 '
+        + overCount  + ' over-supplied \u2022 '
+        + totalProps + ' propert' + (totalProps===1?'y':'ies');
     }
   }
 

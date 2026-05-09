@@ -5091,6 +5091,16 @@ function exportPDFCover(id,e){
   var AMBER=[186,117,23];
   var LIGHT=[235,238,243];
 
+  // Page-break helper: call before any section that needs `needed` mm of vertical
+  // space. If we'd run past the safe content area (y=270 leaves room for footer
+  // at y=283), start a new page and reset y to the top margin.
+  function pbIfNeeded(needed) {
+    if (y + needed > 270) {
+      doc.addPage();
+      y = 15;
+    }
+  }
+
   // Header band with logo
   doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]);
   doc.rect(0,0,210,32,'F');
@@ -5225,8 +5235,8 @@ function exportPDFCover(id,e){
 
   // ===== Sensitivity Analysis section =====
   if (sda && models && models.length) {
-    // Page-break check — sensitivity needs ~50mm of vertical space
-    if (y > 220) { doc.addPage(); y = 15; }
+    // Sensitivity needs roughly 50mm: title 8mm + header 6mm + 5 rows × 5mm + legend 6mm
+    pbIfNeeded(55);
     y+=4;
     doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
     doc.setFont('helvetica','bold');doc.setFontSize(11);
@@ -5294,6 +5304,7 @@ function exportPDFCover(id,e){
   }
 
   // Assumptions block
+  pbIfNeeded(15);
   y+=3;
   doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
   doc.setFont('helvetica','bold');doc.setFontSize(11);
@@ -5310,6 +5321,7 @@ function exportPDFCover(id,e){
 
   // Demand snapshot if available
   if(sa3Obj){
+    pbIfNeeded(20);
     y+=2;
     doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
     doc.setFont('helvetica','bold');doc.setFontSize(11);
@@ -5588,6 +5600,7 @@ function exportPDFCover(id,e){
     if (mapDataUrl || amenities.length || suburbInfo) {
       // ===== FULL-WIDTH AMENITIES TABLE =====
       if (amenities.length) {
+        pbIfNeeded(20);
         y += 2;
         doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
         doc.setFont('helvetica','bold'); doc.setFontSize(11);
@@ -5608,6 +5621,11 @@ function exportPDFCover(id,e){
         doc.setFont('helvetica','normal');
         doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
         amenities.forEach(function(a, idx){
+          // Each row needs 6mm. Page-break if we'd run off the page mid-list.
+          if (y + 6 > 270) {
+            doc.addPage();
+            y = 15;
+          }
           if (idx % 2 === 0) { doc.setFillColor(247,248,250); doc.rect(14, y, 182, 6, 'F'); }
           doc.setFont('helvetica','bold'); doc.setFontSize(9);
           doc.text(a.grp, 16, y+4);
@@ -5691,11 +5709,16 @@ function exportPDFCover(id,e){
 
       // ===== FULL-WIDTH MAP =====
       if (mapDataUrl) {
+        // Map looks bad if cramped — give it at least 50mm vertical or push it to a new page
+        if (270 - y < 50) {
+          doc.addPage();
+          y = 15;
+        }
         // Compute remaining vertical space and fit the map into it.
         // Footer band starts at y=283. Leave 2mm margin.
-        var availH = 281 - y;
+        var availH = 270 - y;
         var mapW = 182;
-        var mapH = Math.min(70, Math.max(40, availH));
+        var mapH = Math.min(80, Math.max(50, availH));
         var mapX = 14;
         try { doc.addImage(mapDataUrl, 'PNG', mapX, y, mapW, mapH); } catch(err){ /* skip */ }
         y += mapH;
@@ -5790,13 +5813,18 @@ function exportPDFCover(id,e){
       doc.text('Distances are straight-line from subject site. Density of existing & permitted SDA gives an indicator of competitive supply pressure.', 14, ny, {maxWidth:182});
     }
 
-    // Footer band — drawn on the LAST page only
-    doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]);
-    doc.rect(0,283,210,14,'F');
-    doc.setTextColor(255,255,255);
-    doc.setFont('helvetica','italic');doc.setFontSize(8);
-    doc.text('CONFIDENTIAL — For internal credit committee use only. Not for distribution.',14,291);
-    doc.text('Radius Project Management',196,291,{align:'right'});
+    // Footer band — draw on EVERY page so multi-page docs look complete.
+    // Also stamp page numbers in the bottom-right of the footer.
+    var totalPages = doc.internal.getNumberOfPages();
+    for (var pn = 1; pn <= totalPages; pn++) {
+      doc.setPage(pn);
+      doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]);
+      doc.rect(0,283,210,14,'F');
+      doc.setTextColor(255,255,255);
+      doc.setFont('helvetica','italic');doc.setFontSize(8);
+      doc.text('CONFIDENTIAL — For internal credit committee use only. Not for distribution.',14,291);
+      doc.text('Radius Project Management  \u2022  Page '+pn+' of '+totalPages,196,291,{align:'right'});
+    }
 
     var clean=String(pr.addr).replace(/[^a-zA-Z0-9 ]/g,'').replace(/\s+/g,'_').substring(0,40);
     doc.save('SDA_CoverSheet_'+clean+'.pdf');
@@ -5846,6 +5874,11 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
   var today=new Date().toLocaleDateString('en-AU',{day:'2-digit',month:'long',year:'numeric'});
   var MN={dp:'Duplex','2p':'2P House','3p':'3P House'};
   var BRAND='002060', ACCENT='185FA5', GREEN='0F6E56', RED='A32D2D', LGRAY='F2F4F7', MGRAY='D0D5DD';
+  // Pull a few values from outer state that the sensitivity section also needs.
+  // Doing it once here so we don't repeat the lookup per scenario row.
+  var tgt = getTgt();
+  var propCatVal = (typeof propCat !== 'undefined' && propCat[pr.id]) ? propCat[pr.id] : null;
+  var extrasTotal = (typeof getExtrasTotal === 'function') ? getExtrasTotal(pr.id) : 0;
   function pct(v){return v!=null?(v*100).toFixed(2)+'%':'—';}
   function dollar(v){return v!=null?'$'+Math.round(v).toLocaleString():'—';}
   function fmtP(v){if(!v||v<=0)return'—';if(v>=1000000)return'$'+(v/1000000).toFixed(2).replace(/\.?0+$/,'')+'m';return'$'+(v/1000).toFixed(0)+'k';}
@@ -6229,7 +6262,8 @@ var pmapInitialised = false;
 var pmapInitialising = false;
 var pmapGeoCache = null;
 var pmapGeocodingActive = false;
-var PMAP_GEOCODE_CAP = 150; // max uncached properties to geocode in one go
+var PMAP_GEOCODE_AUTO  = 50;   // auto-geocode without prompting up to this many
+var PMAP_GEOCODE_HARD  = 500;  // refuse to geocode more than this in one batch
 
 function pmapLoadGeoCache(){
   if (pmapGeoCache) return pmapGeoCache;
@@ -6421,20 +6455,74 @@ function renderPropMap(){
     drawPins();
     return;
   }
-  if (uncached.length > PMAP_GEOCODE_CAP) {
-    if (countsEl) countsEl.textContent = uncached.length + ' uncached addresses — too many to geocode at once. Tighten filters first.';
-    // Still draw whatever IS cached so user gets partial value
-    drawPins();
+  if (uncached.length > PMAP_GEOCODE_HARD) {
+    if (countsEl) {
+      countsEl.innerHTML = '<span style="color:#A32D2D">'+uncached.length+' addresses to geocode &mdash; too many. Use Screener filters to narrow the set first (under '+PMAP_GEOCODE_HARD+').</span>';
+    }
+    drawPins(); // still show any cached pins
     return;
   }
-  if (pmapGeocodingActive) return; // avoid re-entrant calls
+  if (uncached.length > PMAP_GEOCODE_AUTO) {
+    // Show a confirmation prompt as inline button — user opts in
+    if (countsEl) {
+      var estSec = Math.ceil(uncached.length / 4);
+      countsEl.innerHTML = uncached.length + ' addresses need geocoding (~' + estSec + 's). '
+        + '<button onclick="pmapStartGeocodeBatch()" style="margin-left:8px;padding:3px 10px;background:#185FA5;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">Start geocoding</button>';
+    }
+    drawPins(); // show any cached pins meanwhile
+    return;
+  }
+  // Auto-geocode under the auto cap
+  pmapStartGeocodeBatch();
+}
+
+// Kicks off geocoding for whatever addresses still need coords in the current
+// filtered set. Called either automatically (under PMAP_GEOCODE_AUTO) or by
+// the user clicking the inline confirmation button.
+function pmapStartGeocodeBatch(){
+  if (pmapGeocodingActive) return;
+  var tgt = getTgt();
+  var nearMissOn = !!document.getElementById('pmap-near-miss').checked;
+  var source = (typeof filt !== 'undefined' && Array.isArray(filt)) ? filt : props || [];
+  var passing = source.filter(function(pr){ return pr.bestRet >= tgt; });
+  var nearMiss = nearMissOn
+    ? source.filter(function(pr){ return pr.bestRet < tgt && pr.bestRet >= (tgt - 0.01); })
+    : [];
+  var toPin = passing.concat(nearMiss);
+  pmapLoadGeoCache();
+  var uncached = toPin.filter(function(pr){ return !pmapGetCoords(pr.addr); });
+  if (!uncached.length) { renderPropMap(); return; }
   pmapGeocodingActive = true;
-  if (countsEl) countsEl.textContent = 'Geocoding ' + uncached.length + ' addresses\u2026';
-  pmapGeocodeMany(uncached.map(function(pr){ return pr.addr; }), 4)
-    .then(function(){
+  var countsEl = document.getElementById('pmap-counts');
+  var total = uncached.length, done = 0;
+  if (countsEl) countsEl.textContent = 'Geocoding 0/' + total + '\u2026';
+  // Wrap geocode-one to update progress as each completes
+  function progress(){
+    done++;
+    if (countsEl && done < total) countsEl.textContent = 'Geocoding ' + done + '/' + total + '\u2026';
+  }
+  // Run with concurrency 4
+  var i = 0, active = 0;
+  function next(){
+    if (i >= total && active === 0) {
       pmapGeocodingActive = false;
-      drawPins();
-    });
+      renderPropMap();
+      return;
+    }
+    while (active < 4 && i < total) {
+      var addr = uncached[i++].addr;
+      active++;
+      pmapGeocodeOne(addr).then((function(a){
+        return function(coords){
+          if (coords) pmapSetCoords(a, coords);
+          progress();
+          active--;
+          next();
+        };
+      })(addr));
+    }
+  }
+  next();
 }
 
 // Called from the info-window "Open full detail" link

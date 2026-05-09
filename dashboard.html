@@ -158,7 +158,7 @@ tr.dr:hover td{background:#fafaf9}
 
 <div class="tabs">
   <button class="tab on" onclick="sw('screen',this)">Screener</button>
-  <button class="tab" onclick="sw('propmap',this)">Property Map</button>
+  <button class="tab" onclick="sw('propmap',this)">Demand Heatmap</button>
   <button class="tab" onclick="sw('pricing',this)">SDA Pricing</button>
   <button class="tab" onclick="sw('demand',this)">SA3 Demand</button>
   <button class="tab" onclick="sw('sdamap',this)">SDA Map</button>
@@ -232,29 +232,33 @@ tr.dr:hover td{background:#fafaf9}
 </div>
 
 <div id="panel-propmap" class="panel">
-  <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end">
-    <div class="fg" style="display:flex;align-items:center;gap:8px">
-      <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#0F6E56;flex-shrink:0"></span>
-      <span style="font-size:11px;color:#6B7280;font-weight:600">Pass (\u2265 target return)</span>
+  <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));align-items:end">
+    <div class="fg"><label>State</label>
+      <select id="hmst" onchange="renderHeatmap()">
+        <option value="">All states</option>
+        <option value="vic">VIC</option>
+        <option value="nsw">NSW</option>
+        <option value="qld">QLD</option>
+      </select>
     </div>
-    <div class="fg">
-      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer;font-size:11px">
-        <input type="checkbox" id="pmap-near-miss" onchange="renderPropMap()">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F59E0B"></span>
-        Show near-misses (within 1pp of target)
-      </label>
+    <div class="fg"><label>Min demand (SDA participants)</label>
+      <input type="number" id="hmdem" placeholder="e.g. 50" oninput="renderHeatmap()" min="0">
+    </div>
+    <div class="fg" style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#6B7280">
+      <span style="font-weight:600;color:#374151">Heat colour</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:10px;background:linear-gradient(to right,#FEF3C7,#F59E0B,#A32D2D);border-radius:2px"></span>Low \u2192 high demand</span>
     </div>
     <div class="fg" style="text-align:right">
-      <span id="pmap-counts" style="font-size:11px;color:#6B7280"></span>
+      <span id="hmcounts" style="font-size:11px;color:#6B7280"></span>
     </div>
   </div>
   <div id="propmap" style="width:100%;height:640px;border-radius:8px;overflow:hidden;background:#e5e7eb;position:relative">
     <div id="propmap-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#6B7280;padding:20px;flex-direction:column;gap:6px">
-      <div style="font-weight:600;color:#374151">Map loads when this tab is opened</div>
-      <div>Filters from the Screener tab also apply here.</div>
+      <div style="font-weight:600;color:#374151">Heatmap loads when this tab is opened</div>
+      <div>Each rectangle shows an SA4 area, coloured by SDA demand,<br>with a count badge for properties matching your Screener filters.</div>
     </div>
   </div>
-  <p style="font-size:10px;color:#888;margin-top:8px">Click a pin to jump to that property's full detail. Geocoding is cached locally so revisits are instant.</p>
+  <p style="font-size:10px;color:#888;margin-top:8px">Click an SA4 area to filter the Screener to just those properties. Filters from the Screener tab also constrain which properties show in each badge.</p>
 </div>
 
 <div id="panel-pricing" class="panel">
@@ -4330,10 +4334,10 @@ function applyF(){
     return 0;
   });
   updateMetrics(tgt);renderTable(tgt);
-  // If the property map has been opened, re-render with new filtered set.
+  // If the demand heatmap has been opened, re-render with new filtered set.
   // Only fires if map has actually been initialised — no-op otherwise.
-  if (typeof pmapInitialised !== 'undefined' && pmapInitialised) {
-    try { renderPropMap(); } catch(ex){}
+  if (typeof hmInitialised !== 'undefined' && hmInitialised) {
+    try { renderHeatmap(); } catch(ex){}
   }
   saveView();
 }
@@ -5657,6 +5661,9 @@ function exportPDFCover(id,e){
 
       // ===== SUBURB INFO BAND =====
       // Compose factual line: "{Suburb}, {State} — {distance} from {CBD}{ · pop. X}"
+      // Build the suburb context band data now (population, summary, distance to CBD)
+      // but DON'T render it yet — we render it AFTER the map so the credit committee
+      // sees the location visually first, then reads the area context.
       var suburbName = extractSuburb(pr.addr) || (pr.sa3 || '');
       var stateLower = (pr.state || '').toLowerCase();
       var cbd = CBD_COORDS[stateLower];
@@ -5665,47 +5672,13 @@ function exportPDFCover(id,e){
         var dToCBD = haversineKm(coords.lat, coords.lng, cbd.lat, cbd.lng);
         cbdLine = Math.round(dToCBD) + ' km from ' + cbd.name;
       }
-      var bandLines = [];
       var bandHeader = suburbName + (pr.state ? ', ' + pr.state.toUpperCase() : '');
       if (cbdLine) bandHeader += '   \u2022   ' + cbdLine;
       if (suburbInfo && typeof suburbInfo.population === 'number') {
         bandHeader += '   \u2022   Population: ' + suburbInfo.population.toLocaleString();
       }
-      bandLines.push(bandHeader);
-      if (suburbInfo && suburbInfo.summary) {
-        bandLines.push(suburbInfo.summary);
-      }
-
-      if (bandLines.length) {
-        y += 2;
-        // Light-tinted band background
-        doc.setFillColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
-        // Calculate band height based on wrapped header + summary.
-        // IMPORTANT: set font/size BEFORE splitTextToSize so it uses correct metrics.
-        doc.setFont('helvetica','bold'); doc.setFontSize(10);
-        var headerLines = doc.splitTextToSize(bandHeader, 174);
-        doc.setFont('helvetica','normal'); doc.setFontSize(8);
-        var summaryLines = suburbInfo && suburbInfo.summary
-          ? doc.splitTextToSize(suburbInfo.summary, 174) : [];
-        var headerH = headerLines.length * 4.5;
-        var bandH = 3 + headerH + (summaryLines.length ? 1.5 + summaryLines.length * 3.5 : 0) + 3;
-        doc.rect(14, y, 182, bandH, 'F');
-        // Left accent bar
-        doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-        doc.rect(14, y, 1.5, bandH, 'F');
-
-        // Title lines — bold, dark navy
-        doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
-        doc.setFont('helvetica','bold'); doc.setFontSize(10);
-        doc.text(headerLines, 18, y + 5);
-        // Summary lines
-        if (summaryLines.length) {
-          doc.setTextColor(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2]);
-          doc.setFont('helvetica','normal'); doc.setFontSize(8);
-          doc.text(summaryLines, 18, y + 5 + headerH + 1.5);
-        }
-        y += bandH + 2;
-      }
+      var bandSummary = (suburbInfo && suburbInfo.summary) ? suburbInfo.summary : '';
+      var hasBandData = !!(bandHeader || bandSummary);
 
       // ===== FULL-WIDTH MAP =====
       if (mapDataUrl) {
@@ -5729,6 +5702,43 @@ function exportPDFCover(id,e){
         doc.textWithLink('View location on Google Maps \u2197', 14, y+5,
           {url: 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(pr.addr+', Australia')});
         doc.setTextColor(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2]);
+        y += 8;
+      }
+
+      // ===== SUBURB CONTEXT BAND (now rendered AFTER the map) =====
+      // Shows population, distance to CBD, and the descriptive summary so the
+      // committee sees the visual location first, then reads the area context.
+      if (hasBandData) {
+        // Pre-measure the band so we can decide whether to page-break.
+        // IMPORTANT: set font/size BEFORE splitTextToSize so metrics match render.
+        doc.setFont('helvetica','bold'); doc.setFontSize(10);
+        var headerLines = doc.splitTextToSize(bandHeader, 174);
+        doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        var summaryLines = bandSummary ? doc.splitTextToSize(bandSummary, 174) : [];
+        var headerH = headerLines.length * 4.5;
+        var bandH = 3 + headerH + (summaryLines.length ? 1.5 + summaryLines.length * 3.5 : 0) + 3;
+        // Page-break if the band would run off the page
+        if (y + bandH + 2 > 270) {
+          doc.addPage();
+          y = 15;
+        }
+        y += 2;
+        doc.setFillColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+        doc.rect(14, y, 182, bandH, 'F');
+        // Left accent bar
+        doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+        doc.rect(14, y, 1.5, bandH, 'F');
+        // Title lines — bold, dark navy
+        doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
+        doc.setFont('helvetica','bold'); doc.setFontSize(10);
+        doc.text(headerLines, 18, y + 5);
+        // Summary lines
+        if (summaryLines.length) {
+          doc.setTextColor(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2]);
+          doc.setFont('helvetica','normal'); doc.setFontSize(8);
+          doc.text(summaryLines, 18, y + 5 + headerH + 1.5);
+        }
+        y += bandH + 2;
       }
     }
 
@@ -5967,10 +5977,14 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
       r2('Undersupply',Math.max(0,Math.max(0,(sa3.inSDA||0)-(sa3.pts13||0))-(sa3.sup13||0))+' places',true),
     ]})
   ]);}
+  // Feasibility Analysis starts on a fresh page so the heading and the first
+  // model don't get squeezed onto the bottom of an earlier page.
+  ch.push(new D.Paragraph({children:[new D.PageBreak()]}));
   ch.push(sh((3+sn)+'. Feasibility Analysis'));
   ch.push(new D.Paragraph({spacing:{after:120},children:[new D.TextRun({text:'Assumptions: '+pr.state.toUpperCase()+' — Stamp duty '+Math.round(p.stamp*100)+'%  |  BA '+Math.round(p.ba*100)+'%  |  Contingency '+Math.round(p.cg*100)+'%  |  Interest '+Math.round(getIr()*100)+'%  |  LVR 50%',font:'Arial',size:18,color:'6B7280',italics:true})]}));
   models.forEach(function(m,idx){
-    // Page break before each model (except the first one) so each build is on its own page
+    // Each build model on its own page. The first one too, so the heading
+    // sits on the prior page and the model table starts fresh.
     if (idx > 0) {
       ch.push(new D.Paragraph({children:[new D.PageBreak()]}));
     }
@@ -6090,7 +6104,7 @@ function sw(id,el){
   if(id==='pricing')renderPricing();
   if(id==='demand')renderDemand();
   if(id==='sdamap')initSdaMap();
-  if(id==='propmap')initPropMap();
+  if(id==='propmap')initHeatmap();
 }
 
 // =============================================================================
@@ -6249,46 +6263,47 @@ function renderSdaMap(){
 }
 
 // =============================================================================
-// Property Map (screener properties as colour-coded pins)
-// Lazy-init on first tab open. Reuses the existing Maps JS loader and the
-// /api/geocode proxy. Geocoded lat/lng cached in localStorage so revisits
-// are instant.
+// Demand Heatmap — SA4 areas coloured by SDA demand, with property-count badges.
+// Replaces the per-property pin map. Lazy-init on first tab open.
+//
+// How it works:
+//  1. We need a centroid for each SA4 to draw on the map. Centroids are derived
+//     from one geocoded property per SA4 — far cheaper than geocoding everything.
+//  2. Geocoded lat/lng are cached in localStorage (same key as the old pin map,
+//     so prior geocodes are reused).
+//  3. Each SA4 with at least one property becomes a circle marker:
+//     - Position: centroid (avg lat/lng of geocoded properties in that SA4)
+//     - Colour:   demand intensity (yellow → orange → dark red)
+//     - Size:     scaled by sqrt(demand)
+//     - Label:    count of properties in that SA4 matching screener filters
+//  4. Click a circle → set Screener SA4 filter to that area + switch tabs.
 // =============================================================================
-var PMAP_GEO_KEY = 'sda_screener_geocode_cache_v1';
-var pmapInstance = null;
-var pmapMarkers = [];
-var pmapInfoWindow = null;
-var pmapInitialised = false;
-var pmapInitialising = false;
-var pmapGeoCache = null;
-var pmapGeocodingActive = false;
-var PMAP_GEOCODE_AUTO  = 50;   // auto-geocode without prompting up to this many
-var PMAP_GEOCODE_HARD  = 500;  // refuse to geocode more than this in one batch
+var HEATMAP_GEO_KEY = 'sda_screener_geocode_cache_v1';
+var hmInstance = null;
+var hmMarkers = [];
+var hmLabels = [];
+var hmInfoWindow = null;
+var hmInitialised = false;
+var hmInitialising = false;
+var hmGeoCache = null;
+var hmGeocodingActive = false;
 
-function pmapLoadGeoCache(){
-  if (pmapGeoCache) return pmapGeoCache;
+function hmLoadGeoCache(){
+  if (hmGeoCache) return hmGeoCache;
   try {
-    var raw = localStorage.getItem(PMAP_GEO_KEY);
-    pmapGeoCache = raw ? JSON.parse(raw) : {};
-    if (typeof pmapGeoCache !== 'object' || !pmapGeoCache) pmapGeoCache = {};
-  } catch(ex) { pmapGeoCache = {}; }
-  return pmapGeoCache;
+    var raw = localStorage.getItem(HEATMAP_GEO_KEY);
+    hmGeoCache = raw ? JSON.parse(raw) : {};
+    if (typeof hmGeoCache !== 'object' || !hmGeoCache) hmGeoCache = {};
+  } catch(ex) { hmGeoCache = {}; }
+  return hmGeoCache;
 }
-function pmapSaveGeoCache(){
-  try { localStorage.setItem(PMAP_GEO_KEY, JSON.stringify(pmapGeoCache || {})); } catch(ex){}
+function hmSaveGeoCache(){
+  try { localStorage.setItem(HEATMAP_GEO_KEY, JSON.stringify(hmGeoCache || {})); } catch(ex){}
 }
-function pmapGetCoords(addr){
-  var c = pmapLoadGeoCache();
-  return c[addr] || null;
-}
-function pmapSetCoords(addr, coords){
-  var c = pmapLoadGeoCache();
-  c[addr] = coords;
-  pmapSaveGeoCache();
-}
+function hmGetCoords(addr){ var c = hmLoadGeoCache(); return c[addr] || null; }
+function hmSetCoords(addr, coords){ var c = hmLoadGeoCache(); c[addr] = coords; hmSaveGeoCache(); }
 
-// Server-side geocode proxy. Returns { lat, lng } or null.
-function pmapGeocodeOne(addr){
+function hmGeocodeOne(addr){
   return fetch('/api/geocode?address=' + encodeURIComponent(addr), {credentials:'same-origin'})
     .then(function(r){ return r.json(); })
     .then(function(data){
@@ -6300,39 +6315,10 @@ function pmapGeocodeOne(addr){
     .catch(function(){ return null; });
 }
 
-// Geocode an array of addresses with limited concurrency. Caches as we go.
-// Returns a Promise that resolves when all are done (or skipped).
-function pmapGeocodeMany(addrs, concurrency){
-  concurrency = concurrency || 4;
-  var i = 0, active = 0;
-  return new Promise(function(resolve){
-    if (!addrs.length) { resolve(); return; }
-    function next(){
-      if (i >= addrs.length && active === 0) { resolve(); return; }
-      while (active < concurrency && i < addrs.length) {
-        var addr = addrs[i++];
-        active++;
-        pmapGeocodeOne(addr).then(function(coords){
-          // Cache even nulls? No — leave nulls uncached so a later retry can succeed
-          // when e.g. address typo gets fixed or backend issue resolves.
-          if (coords) pmapSetCoords(addr, coords);
-          active--;
-          next();
-        });
-      }
-    }
-    next();
-  });
-}
-
-function initPropMap(){
-  // Re-render whenever the tab is opened — this picks up filter changes
-  if (pmapInitialised) {
-    renderPropMap();
-    return;
-  }
-  if (pmapInitialising) return;
-  pmapInitialising = true;
+function initHeatmap(){
+  if (hmInitialised) { renderHeatmap(); return; }
+  if (hmInitialising) return;
+  hmInitialising = true;
   var emptyEl = document.getElementById('propmap-empty');
   if (emptyEl) {
     emptyEl.style.display = 'flex';
@@ -6340,22 +6326,27 @@ function initPropMap(){
   }
   loadGoogleMapsJS()
     .then(function(){
-      // Centre roughly on Australia's east coast — bounds will fit pins after render
-      pmapInstance = new google.maps.Map(document.getElementById('propmap'), {
-        center: { lat: -33.8688, lng: 151.2093 },
+      hmInstance = new google.maps.Map(document.getElementById('propmap'), {
+        center: { lat: -33.0, lng: 145.0 }, // Roughly mid-east Australia
         zoom: 5,
         mapTypeControl: true,
         streetViewControl: false,
-        fullscreenControl: true
+        fullscreenControl: true,
+        styles: [
+          // Mute roads/POI to make heatmap circles pop
+          { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+          { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+          { featureType: 'road', elementType: 'labels', stylers: [{ visibility: 'off' }] }
+        ]
       });
-      pmapInfoWindow = new google.maps.InfoWindow();
-      pmapInitialised = true;
-      pmapInitialising = false;
+      hmInfoWindow = new google.maps.InfoWindow();
+      hmInitialised = true;
+      hmInitialising = false;
       if (emptyEl) emptyEl.style.display = 'none';
-      renderPropMap();
+      renderHeatmap();
     })
     .catch(function(err){
-      pmapInitialising = false;
+      hmInitialising = false;
       if (emptyEl) {
         emptyEl.innerHTML = '<div style="color:#A32D2D;font-weight:600">Map failed to load</div>'
           + '<div style="font-size:11px;color:#6B7280">' + escHtml(err.message || 'Unknown error') + '</div>';
@@ -6363,159 +6354,205 @@ function initPropMap(){
     });
 }
 
-function renderPropMap(){
-  if (!pmapInitialised || !pmapInstance) return;
-  // Clear existing markers
-  pmapMarkers.forEach(function(m){ m.setMap(null); });
-  pmapMarkers = [];
-  if (pmapInfoWindow) pmapInfoWindow.close();
+// Build a per-SA4 summary from the currently filtered set of properties.
+// Returns an array of { sa4, state, demand, propertyCount, sample } where
+// 'sample' is one property from the SA4 (used for centroid geocoding).
+function hmBuildSA4Summary() {
+  var stateFilter = document.getElementById('hmst').value;
+  var minDem = parseFloat(document.getElementById('hmdem').value) || 0;
+  // Use the screener's filtered set so all the user's filters apply
+  var source = (typeof filt !== 'undefined' && Array.isArray(filt)) ? filt : (props || []);
+  var bySa4 = {};
+  source.forEach(function(pr){
+    if (stateFilter && pr.state !== stateFilter) return;
+    var key = pr.sa4 || '';
+    if (!key) return;
+    if (!bySa4[key]) {
+      bySa4[key] = {
+        sa4: key,
+        state: pr.state || '',
+        demand: (pr.sda && typeof pr.sda.d === 'number') ? pr.sda.d : 0,
+        propertyCount: 0,
+        sample: pr
+      };
+    }
+    bySa4[key].propertyCount++;
+  });
+  var arr = Object.keys(bySa4).map(function(k){ return bySa4[k]; });
+  // Apply min-demand filter
+  arr = arr.filter(function(s){ return s.demand >= minDem; });
+  return arr;
+}
 
-  var tgt = getTgt();
-  var nearMissOn = !!document.getElementById('pmap-near-miss').checked;
-  // Use the currently filtered set — same as the table
-  var source = (typeof filt !== 'undefined' && Array.isArray(filt)) ? filt : props || [];
-  // Filter to what we'll actually pin: passes (always) + near-misses (if toggle on)
-  var passing = source.filter(function(pr){ return pr.bestRet >= tgt; });
-  var nearMiss = nearMissOn
-    ? source.filter(function(pr){ return pr.bestRet < tgt && pr.bestRet >= (tgt - 0.01); })
-    : [];
-  var toPin = passing.concat(nearMiss);
+// Resolve a centroid for an SA4 from the geocode cache. Returns null if no
+// properties in that SA4 have been geocoded yet.
+function hmGetSA4Centroid(sa4Summary, sourceProps) {
+  var coords = [];
+  sourceProps.forEach(function(pr){
+    if (pr.sa4 !== sa4Summary.sa4) return;
+    var c = hmGetCoords(pr.addr);
+    if (c) coords.push(c);
+  });
+  if (!coords.length) return null;
+  var lat = 0, lng = 0;
+  coords.forEach(function(c){ lat += c.lat; lng += c.lng; });
+  return { lat: lat / coords.length, lng: lng / coords.length };
+}
 
-  var countsEl = document.getElementById('pmap-counts');
-  if (!toPin.length) {
-    if (countsEl) countsEl.textContent = 'No properties match — adjust filters or load data';
+// Demand → fill colour (light yellow → orange → dark red)
+function hmDemandColour(demand, maxDemand) {
+  if (!maxDemand || maxDemand <= 0) return '#F59E0B';
+  var t = Math.min(1, demand / maxDemand);
+  // Three-stop gradient: #FEF3C7 (light) → #F59E0B (mid) → #A32D2D (high)
+  if (t < 0.5) {
+    var k = t / 0.5;
+    return hmLerpColor('#FEF3C7', '#F59E0B', k);
+  } else {
+    var k2 = (t - 0.5) / 0.5;
+    return hmLerpColor('#F59E0B', '#A32D2D', k2);
+  }
+}
+function hmLerpColor(a, b, t) {
+  function p(h){ return [parseInt(h.substr(1,2),16), parseInt(h.substr(3,2),16), parseInt(h.substr(5,2),16)]; }
+  function f(n){ var s = Math.round(n).toString(16); return s.length===1?'0'+s:s; }
+  var pa = p(a), pb = p(b);
+  return '#' + f(pa[0]+(pb[0]-pa[0])*t) + f(pa[1]+(pb[1]-pa[1])*t) + f(pa[2]+(pb[2]-pa[2])*t);
+}
+
+function renderHeatmap(){
+  if (!hmInitialised || !hmInstance) return;
+  // Clear existing markers + labels
+  hmMarkers.forEach(function(m){ m.setMap(null); });
+  hmLabels.forEach(function(l){ l.setMap(null); });
+  hmMarkers = [];
+  hmLabels = [];
+  if (hmInfoWindow) hmInfoWindow.close();
+
+  var summary = hmBuildSA4Summary();
+  var countsEl = document.getElementById('hmcounts');
+  if (!summary.length) {
+    if (countsEl) countsEl.textContent = 'No SA4 areas match — adjust filters or load data';
     return;
   }
+  // Source props for centroid resolution (pre-filter so we use same rows)
+  var stateFilter = document.getElementById('hmst').value;
+  var sourceProps = (props || []).filter(function(pr){ return !stateFilter || pr.state === stateFilter; });
 
-  // Identify any addresses we don't yet have coords for
-  pmapLoadGeoCache();
-  var uncached = toPin.filter(function(pr){ return !pmapGetCoords(pr.addr); });
+  // Determine which SA4s already have a centroid (any cached coords for any of their props)
+  var withCentroid = [], without = [];
+  summary.forEach(function(s){
+    var c = hmGetSA4Centroid(s, sourceProps);
+    if (c) { s.centroid = c; withCentroid.push(s); }
+    else   { without.push(s); }
+  });
 
-  function drawPins(){
+  function drawAll() {
+    var maxDemand = 0;
+    summary.forEach(function(s){ if (s.demand > maxDemand) maxDemand = s.demand; });
     var bounds = new google.maps.LatLngBounds();
-    var drawn = 0, missing = 0;
-    toPin.forEach(function(pr){
-      var coords = pmapGetCoords(pr.addr);
-      if (!coords) { missing++; return; }
-      var isPass = pr.bestRet >= tgt;
-      var col = isPass ? '#0F6E56' : '#F59E0B';
+    var drawn = 0;
+    summary.forEach(function(s){
+      if (!s.centroid) return;
+      var fillColor = hmDemandColour(s.demand, maxDemand);
+      // Size scales by sqrt(demand) so it's visually proportional. 
+      var scale = 12 + Math.sqrt(s.demand) * 1.4;
+      scale = Math.min(40, Math.max(12, scale));
       var marker = new google.maps.Marker({
-        position: coords,
-        map: pmapInstance,
-        title: pr.addr,
+        position: s.centroid,
+        map: hmInstance,
+        title: s.sa4 + ' — demand ' + s.demand + ', ' + s.propertyCount + ' propert' + (s.propertyCount===1?'y':'ies'),
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          fillColor: col,
-          fillOpacity: 0.85,
-          strokeColor: '#ffffff',
-          strokeWeight: 2,
-          scale: 9
+          fillColor: fillColor,
+          fillOpacity: 0.78,
+          strokeColor: '#7c2d12',
+          strokeWeight: 1.5,
+          scale: scale
+        }
+      });
+      // A small badge above the circle showing property count
+      var label = new google.maps.Marker({
+        position: s.centroid,
+        map: hmInstance,
+        clickable: false,
+        icon: {
+          path: 'M -1 0 L 1 0', // invisible — we use label only
+          strokeOpacity: 0,
+          scale: 1
+        },
+        label: {
+          text: String(s.propertyCount),
+          color: '#1a1a1a',
+          fontSize: '11px',
+          fontWeight: '700'
         }
       });
       marker.addListener('click', function(){
-        var bestModelLabel = pr.bestModel ? ({'2p':'2P House','3p':'3P House','dp':'Duplex'}[pr.bestModel] || pr.bestModel) : '\u2014';
         var html = '<div style="font-family:Arial;min-width:220px;max-width:280px">'
-          + '<div style="font-weight:700;color:#185FA5;margin-bottom:4px">' + escHtml(pr.addr) + '</div>'
-          + '<div style="font-size:11px;color:#666;margin-bottom:6px">' + escHtml(pr.sa4 || '') + ' \u2022 ' + (pr.state||'').toUpperCase() + '</div>'
+          + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">' + escHtml(s.sa4) + '</div>'
+          + '<div style="font-size:11px;color:#666;margin-bottom:8px">' + (s.state||'').toUpperCase() + '</div>'
           + '<div style="font-size:11px;line-height:1.6">'
-          +   '<div>Price: <b>$' + Math.round(pr.price).toLocaleString() + '</b></div>'
-          +   '<div>Land: <b>' + (pr.land>0 ? Math.round(pr.land)+' m\u00B2' : '\u2014') + '</b></div>'
-          +   '<div>Best model: <b>' + bestModelLabel + '</b></div>'
-          +   '<div>Unlevered return: <b style="color:' + col + '">' + (pr.bestRet*100).toFixed(2) + '%</b>'
-          +   (isPass ? '' : ' <span style="color:#BA7517;font-size:10px">(near miss)</span>') + '</div>'
+          +   '<div>SDA participants: <b>' + s.demand + '</b></div>'
+          +   '<div>Properties matching filters: <b style="color:#185FA5">' + s.propertyCount + '</b></div>'
           + '</div>'
           + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
-          + '<a href="javascript:void(0)" onclick="pmapJumpToProperty(' + pr.id + ')" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">Open full detail \u2192</a>'
+          + '<a href="javascript:void(0)" onclick="hmFilterScreenerToSA4(\'' + escHtml(s.sa4).replace(/'/g, "\\'") + '\')" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">Filter Screener to this SA4 \u2192</a>'
           + '</div></div>';
-        pmapInfoWindow.setContent(html);
-        pmapInfoWindow.open(pmapInstance, marker);
+        hmInfoWindow.setContent(html);
+        hmInfoWindow.open(hmInstance, marker);
       });
-      pmapMarkers.push(marker);
-      bounds.extend(coords);
+      hmMarkers.push(marker);
+      hmLabels.push(label);
+      bounds.extend(s.centroid);
       drawn++;
     });
-    // Fit to bounds (only if we drew at least one)
     if (drawn > 0) {
-      pmapInstance.fitBounds(bounds);
-      // Don't over-zoom on a single pin
-      var listener = google.maps.event.addListenerOnce(pmapInstance, 'idle', function(){
-        if (pmapInstance.getZoom() > 13) pmapInstance.setZoom(13);
+      hmInstance.fitBounds(bounds);
+      google.maps.event.addListenerOnce(hmInstance, 'idle', function(){
+        if (hmInstance.getZoom() > 9) hmInstance.setZoom(9);
       });
     }
     if (countsEl) {
-      var parts = [drawn + ' pin' + (drawn===1?'':'s')];
-      if (passing.length) parts.push(passing.length + ' passing');
-      if (nearMissOn && nearMiss.length) parts.push(nearMiss.length + ' near-miss');
-      if (missing) parts.push(missing + ' could not be geocoded');
-      countsEl.textContent = parts.join(' \u2022 ');
+      var totalProps = summary.reduce(function(s,x){return s + x.propertyCount;}, 0);
+      countsEl.textContent = drawn + ' SA4 area' + (drawn===1?'':'s') + ' \u2022 ' + totalProps + ' propert' + (totalProps===1?'y':'ies') + ' total';
     }
   }
 
-  if (uncached.length === 0) {
-    drawPins();
-    return;
-  }
-  if (uncached.length > PMAP_GEOCODE_HARD) {
-    if (countsEl) {
-      countsEl.innerHTML = '<span style="color:#A32D2D">'+uncached.length+' addresses to geocode &mdash; too many. Use Screener filters to narrow the set first (under '+PMAP_GEOCODE_HARD+').</span>';
-    }
-    drawPins(); // still show any cached pins
-    return;
-  }
-  if (uncached.length > PMAP_GEOCODE_AUTO) {
-    // Show a confirmation prompt as inline button — user opts in
-    if (countsEl) {
-      var estSec = Math.ceil(uncached.length / 4);
-      countsEl.innerHTML = uncached.length + ' addresses need geocoding (~' + estSec + 's). '
-        + '<button onclick="pmapStartGeocodeBatch()" style="margin-left:8px;padding:3px 10px;background:#185FA5;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">Start geocoding</button>';
-    }
-    drawPins(); // show any cached pins meanwhile
-    return;
-  }
-  // Auto-geocode under the auto cap
-  pmapStartGeocodeBatch();
-}
+  // If we have at least one centroid for every SA4, draw immediately
+  if (without.length === 0) { drawAll(); return; }
 
-// Kicks off geocoding for whatever addresses still need coords in the current
-// filtered set. Called either automatically (under PMAP_GEOCODE_AUTO) or by
-// the user clicking the inline confirmation button.
-function pmapStartGeocodeBatch(){
-  if (pmapGeocodingActive) return;
-  var tgt = getTgt();
-  var nearMissOn = !!document.getElementById('pmap-near-miss').checked;
-  var source = (typeof filt !== 'undefined' && Array.isArray(filt)) ? filt : props || [];
-  var passing = source.filter(function(pr){ return pr.bestRet >= tgt; });
-  var nearMiss = nearMissOn
-    ? source.filter(function(pr){ return pr.bestRet < tgt && pr.bestRet >= (tgt - 0.01); })
-    : [];
-  var toPin = passing.concat(nearMiss);
-  pmapLoadGeoCache();
-  var uncached = toPin.filter(function(pr){ return !pmapGetCoords(pr.addr); });
-  if (!uncached.length) { renderPropMap(); return; }
-  pmapGeocodingActive = true;
-  var countsEl = document.getElementById('pmap-counts');
-  var total = uncached.length, done = 0;
-  if (countsEl) countsEl.textContent = 'Geocoding 0/' + total + '\u2026';
-  // Wrap geocode-one to update progress as each completes
-  function progress(){
-    done++;
-    if (countsEl && done < total) countsEl.textContent = 'Geocoding ' + done + '/' + total + '\u2026';
-  }
-  // Run with concurrency 4
-  var i = 0, active = 0;
-  function next(){
-    if (i >= total && active === 0) {
-      pmapGeocodingActive = false;
-      renderPropMap();
+  // Otherwise we need to geocode ONE property per SA4 missing a centroid.
+  // Pick the sample property already chosen during summary build.
+  if (hmGeocodingActive) { drawAll(); return; }
+  // Cap at 80 SA4 geocodes per batch (very rare to need more)
+  var toGeocode = without.slice(0, 80);
+  if (countsEl) countsEl.textContent = 'Geocoding ' + toGeocode.length + ' SA4 area' + (toGeocode.length===1?'':'s') + '\u2026';
+  hmGeocodingActive = true;
+  var i = 0, active = 0, done = 0;
+  function next() {
+    if (i >= toGeocode.length && active === 0) {
+      hmGeocodingActive = false;
+      // Re-resolve centroids for SA4s we just geocoded
+      summary.forEach(function(s){
+        if (!s.centroid) {
+          var c = hmGetSA4Centroid(s, sourceProps);
+          if (c) s.centroid = c;
+        }
+      });
+      drawAll();
       return;
     }
-    while (active < 4 && i < total) {
-      var addr = uncached[i++].addr;
+    while (active < 4 && i < toGeocode.length) {
+      var s = toGeocode[i++];
+      var addr = s.sample.addr;
       active++;
-      pmapGeocodeOne(addr).then((function(a){
+      hmGeocodeOne(addr).then((function(a){
         return function(coords){
-          if (coords) pmapSetCoords(a, coords);
-          progress();
+          if (coords) hmSetCoords(a, coords);
+          done++;
+          if (countsEl && done < toGeocode.length) {
+            countsEl.textContent = 'Geocoding ' + done + '/' + toGeocode.length + '\u2026';
+          }
           active--;
           next();
         };
@@ -6523,25 +6560,29 @@ function pmapStartGeocodeBatch(){
     }
   }
   next();
+  // Draw whatever we already have so the user sees something while geocoding runs
+  drawAll();
 }
 
-// Called from the info-window "Open full detail" link
-function pmapJumpToProperty(id){
-  // Switch back to Screener tab
-  var screenerTabBtn = document.querySelector('.tab[onclick*="screen"]');
-  if (screenerTabBtn) {
-    sw('screen', screenerTabBtn);
-  }
-  // Expand the property's detail row and scroll into view
-  setTimeout(function(){
-    var dtr = document.getElementById('dtr-' + id);
-    if (dtr && dtr.style.display !== 'table-row') {
-      try { toggleD(id); } catch(ex){}
+// Click handler for "Filter Screener to this SA4" link in info window
+function hmFilterScreenerToSA4(sa4){
+  // Set Screener filter
+  var sa4El = document.getElementById('fsa4');
+  if (sa4El) {
+    var found = false;
+    for (var i = 0; i < sa4El.options.length; i++) {
+      if (sa4El.options[i].value === sa4) { found = true; break; }
     }
-    var tgtEl = document.getElementById('dtr-' + id) || document.querySelector('tr[onclick*="toggleD(' + id + ')"]');
-    if (tgtEl && tgtEl.scrollIntoView) tgtEl.scrollIntoView({behavior:'smooth', block:'center'});
-  }, 50);
+    if (found) {
+      sa4El.value = sa4;
+      if (typeof applyF === 'function') applyF();
+    }
+  }
+  // Switch to Screener tab
+  var screenerTabBtn = document.querySelector('.tab[onclick*="screen"]');
+  if (screenerTabBtn) sw('screen', screenerTabBtn);
 }
+
 
 // Tiny HTML-escape helper for use in info windows
 function escHtml(s){

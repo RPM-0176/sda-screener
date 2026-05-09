@@ -5797,10 +5797,18 @@ function resetSettings(){
 
 
 
+// Per-model mix state for the Suburb Lookup. Persists across runLookup calls
+// (e.g. typing a new suburb, hitting Enter, or changing one card's mix) so that
+// each card's dropdown stays on whatever the user last picked. Reset on
+// openLookup so a fresh modal session starts at "Best" for all three models.
+var lkMixState = {'2p':'best','3p':'best','dp':'best'};
+
 function openLookup(){
   document.getElementById('lk-suburb').value='';
   document.getElementById('lk-results').style.display='none';
   document.getElementById('lookup-modal').style.display='block';
+  // Fresh session — reset all three model mixes to "Best"
+  lkMixState = {'2p':'best','3p':'best','dp':'best'};
   setTimeout(function(){document.getElementById('lk-suburb').focus();},100);
 }
 function closeLookup(){
@@ -5902,11 +5910,21 @@ function runLookup(){
   }
   document.getElementById('lk-sda-card').innerHTML=sdaRef||'<span style="font-size:11px;color:#9CA3AF">No SDA pricing for this SA4</span>';
 
+  // Capture current per-model mix from any existing selects into lkMixState
+  // BEFORE we rebuild the HTML (otherwise the user's choice is lost). On the
+  // very first runLookup of a session, the selects don't exist yet — that's
+  // fine, lkMixState already holds 'best' from openLookup.
+  ['2p','3p','dp'].forEach(function(m){
+    var el=document.getElementById('lk-mix-'+m);
+    if(el && el.value) lkMixState[m]=el.value;
+  });
+
   // Calculate all 3 models
   function calcMaxLand(model){
     if(!sda) return null;
-    var selEl=document.getElementById('lk-mix-'+model);
-    var modelCat=selEl?selEl.value:'best';
+    // Read the user's chosen mix from persistent state, not the DOM, so each
+    // model independently keeps whatever was last picked for it.
+    var modelCat=lkMixState[model]||'best';
     var rate=getCatRate(sda,model,modelCat);
     if(rate<=0) return null;
     var pts=model==='dp'?4:(model==='3p'?3:2);
@@ -5922,10 +5940,6 @@ function runLookup(){
     return{rate:rate,pts:pts,gross:gross,net:net,build:build,cons:cons,maxTotal:maxTotal,maxPrice:maxPrice,model:model};
   }
 
-  // Save current per-model mix selections before cards are rewritten
-  var savedMix={};
-  ['2p','3p','dp'].forEach(function(m){var el=document.getElementById('lk-mix-'+m);if(el)savedMix[m]=el.value;});
-
   var results={'2p':calcMaxLand('2p'),'3p':calcMaxLand('3p'),'dp':calcMaxLand('dp')};
 
   // Find best
@@ -5938,8 +5952,7 @@ function runLookup(){
   var banner=document.getElementById('lk-best-banner');
   if(bestModel){
     banner.style.display='flex';
-    var bestSelEl=document.getElementById('lk-mix-'+bestModel);
-    var bestCat=bestSelEl?bestSelEl.value:'best';
+    var bestCat=lkMixState[bestModel]||'best';
     document.getElementById('lk-best-label').textContent=MN[bestModel]+' — '+getCatLabel(bestCat);
     document.getElementById('lk-best-price').textContent='$'+Math.round(bestPrice).toLocaleString();
   } else {
@@ -5959,15 +5972,18 @@ function runLookup(){
       return;
     }
     el.style.border=isBest?'2px solid #0F6E56':'1px solid #e5e7eb';
-    var selEl=document.getElementById('lk-mix-'+m);
-    var modelCat=selEl?selEl.value:'best';
+    // Read mix from persistent state (DOM select hasn't been rebuilt yet)
+    var modelCat=lkMixState[m]||'best';
     var catDesc=getCatLabel(modelCat);
     // Build mix options for this model
     var mixOpts2p='<option value="best">Best</option><option value="hps_hps">HPS+HPS</option><option value="fa_hps">FA+HPS</option><option value="il_hps">IL+HPS</option><option value="fa_fa">FA+FA</option><option value="il_fa">IL+FA</option><option value="il_il">IL+IL</option>';
     var mixOpts3p='<option value="best">Best</option><option value="hps_hps_hps">HPS+HPS+HPS</option><option value="hps_hps_fa">HPS+HPS+FA</option><option value="hps_hps_il">HPS+HPS+IL</option><option value="hps_fa_fa">HPS+FA+FA</option><option value="fa_fa_fa">FA+FA+FA</option><option value="il_il_il">IL+IL+IL</option>';
     var mixOptsDp='<option value="best">Best</option><option value="dp_hps_hps_hps_hps">4x HPS</option><option value="dp_il_fa_hps_hps">IL+FA+HPS+HPS</option><option value="dp_il_il_fa_fa">2xIL+2xFA</option><option value="dp_fa_fa_fa_fa">4x FA</option><option value="dp_il_il_il_il">4x IL</option>';
     var mixOpts=m==='3p'?mixOpts3p:m==='dp'?mixOptsDp:mixOpts2p;
-    // Set selected value
+    // Mark the user's current selection so the dropdown shows it after innerHTML replaces the element.
+    // Replace value="X"> with value="X" selected> for the matching option only.
+    var marker='value="'+modelCat+'"';
+    mixOpts=mixOpts.replace(marker+'>', marker+' selected>');
     var mixHtml='<select id="lk-mix-'+m+'" onchange="refreshCard(\'' +m+ '\')" style="width:100%;padding:5px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:11px;font-family:Arial;margin-bottom:6px;background:#fff">'+mixOpts+'</select>';
     el.innerHTML='<div style="background:'+col+';color:#fff;padding:8px 12px;font-size:11px;font-weight:700">'+MN[m]+(isBest?' &#9733; BEST':'')+'</div>'
       +'<div style="padding:10px 12px">'

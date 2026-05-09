@@ -97,6 +97,7 @@ tr.dr:hover td{background:#fafaf9}
       <a href="/logout" class="clrbtn2" style="color:#A32D2D;border-color:#A32D2D;text-decoration:none;display:none" id="logout-btn">Sign out</a>
       
       <button class="clrbtn2" onclick="openLookup()" style="color:#185FA5;border-color:#185FA5;font-weight:700">&#128269; Suburb lookup</button>
+      <button class="clrbtn2" id="shortlist-btn" onclick="openShortlist()" style="color:#F59E0B;border-color:#F59E0B;font-weight:700;opacity:0.55">&#9733; Compare shortlist (0)</button>
   </div>
 </div>
 
@@ -3503,6 +3504,119 @@ function applyPendingSliderValues(){
 function clearSavedSettings(){
   try { localStorage.removeItem(LS_KEY); } catch(ex){}
 }
+
+// === User view persistence (filters, sort, expanded rows, shortlist) ======
+// Separate from settings so users can clear one without the other.
+var VIEW_KEY = 'sda_screener_view_v1';
+var SHORTLIST_KEY = 'sda_screener_shortlist_v1';
+var _viewLoading = false; // guard so applyF/srt don't re-save during load
+function _viewIds() {
+  return ['fsa4','fst','fmod','fret','fmed','fprice','fland','fdem','firr','fcat'];
+}
+function saveView() {
+  if (_viewLoading) return;
+  try {
+    var view = { filters: {}, sortK: sortK, sortD: sortD, expanded: [] };
+    _viewIds().forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) view.filters[id] = el.value;
+    });
+    // Capture which detail rows are currently open
+    document.querySelectorAll('.dtr').forEach(function(tr){
+      if (tr.style.display === 'table-row') {
+        var m = tr.id.match(/^dtr-(.+)$/);
+        if (m) view.expanded.push(m[1]);
+      }
+    });
+    localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+  } catch(ex) { /* localStorage blocked or full */ }
+}
+function loadView() {
+  try {
+    var raw = localStorage.getItem(VIEW_KEY);
+    if (!raw) return;
+    var view = JSON.parse(raw);
+    if (!view) return;
+    _viewLoading = true;
+    if (view.filters) {
+      _viewIds().forEach(function(id){
+        var el = document.getElementById(id);
+        if (el && view.filters[id] !== undefined) {
+          // SA4 dropdown is populated dynamically — only restore if option exists
+          if (id === 'fsa4' && el.tagName === 'SELECT') {
+            var found = false;
+            for (var i=0;i<el.options.length;i++) {
+              if (el.options[i].value === view.filters[id]) { found = true; break; }
+            }
+            if (found) el.value = view.filters[id];
+          } else {
+            el.value = view.filters[id];
+          }
+        }
+      });
+    }
+    if (view.sortK) sortK = view.sortK;
+    if (typeof view.sortD === 'number') sortD = view.sortD;
+    // Re-apply filters with restored values (which will re-render the table)
+    if (typeof applyF === 'function') applyF();
+    // Re-open any rows that were expanded last session
+    if (Array.isArray(view.expanded)) {
+      view.expanded.forEach(function(id){
+        try { toggleD(parseInt(id, 10)); } catch(ex) {}
+      });
+    }
+    // Update sort indicator
+    var ssEl = document.getElementById('stsort');
+    if (ssEl && sortK) ssEl.textContent = 'sorted by '+sortK+' '+(sortD>0?'\u2191':'\u2193');
+  } catch(ex) {}
+  finally { _viewLoading = false; }
+}
+function clearSavedView() {
+  try { localStorage.removeItem(VIEW_KEY); } catch(ex) {}
+}
+
+// === Shortlist persistence ================================================
+var shortlistIds = []; // array of property IDs starred for comparison
+function loadShortlist() {
+  try {
+    var raw = localStorage.getItem(SHORTLIST_KEY);
+    if (raw) {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) shortlistIds = arr.map(Number).filter(function(x){return !isNaN(x);});
+    }
+  } catch(ex) { shortlistIds = []; }
+}
+function saveShortlist() {
+  try { localStorage.setItem(SHORTLIST_KEY, JSON.stringify(shortlistIds)); } catch(ex) {}
+}
+function isShortlisted(id) { return shortlistIds.indexOf(Number(id)) !== -1; }
+function toggleShortlist(id, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  id = Number(id);
+  var idx = shortlistIds.indexOf(id);
+  if (idx === -1) shortlistIds.push(id);
+  else shortlistIds.splice(idx, 1);
+  saveShortlist();
+  updateShortlistButton();
+  // Update star icon on this row only — no full table rebuild
+  var star = document.getElementById('star-'+id);
+  if (star) {
+    var on = isShortlisted(id);
+    star.textContent = on ? '\u2605' : '\u2606';
+    star.style.color = on ? '#F59E0B' : '#D1D5DB';
+    star.title = on ? 'Remove from shortlist' : 'Add to shortlist';
+  }
+}
+function updateShortlistButton() {
+  var btn = document.getElementById('shortlist-btn');
+  if (!btn) return;
+  var n = shortlistIds.length;
+  btn.textContent = '\u2605 Compare shortlist (' + n + ')';
+  btn.style.opacity = n > 0 ? '1' : '0.55';
+  btn.style.cursor = n > 0 ? 'pointer' : 'not-allowed';
+}
+loadShortlist();
+
 // Apply saved values now (before any calculations run)
 loadSettings();
 
@@ -3704,11 +3818,18 @@ function clearState(st){
   rebuildProps();
 }
 function clearAll(){['vic','nsw','qld'].forEach(clearState);}
+var _viewRestored = false;
 function rebuildProps(){
   props=stateProps.vic.concat(stateProps.nsw,stateProps.qld);
   var sa4s=[];props.forEach(function(p){if(p.sa4&&sa4s.indexOf(p.sa4)<0)sa4s.push(p.sa4);});sa4s.sort();
   document.getElementById('fsa4').innerHTML='<option value="">All SA4</option>'+sa4s.map(function(s){return'<option>'+s+'</option>';}).join('');
-  applyF();
+  if (!_viewRestored && props.length > 0) {
+    _viewRestored = true;
+    loadView(); // applies saved filters/sort/expanded rows; re-runs applyF internally
+  } else {
+    applyF();
+  }
+  if (typeof updateShortlistButton === 'function') updateShortlistButton();
 }
 
 function setPropPrice(id, val) {
@@ -3778,6 +3899,33 @@ function removePropExtra(id,idx) {
 function getExtrasTotal(id) {
   return (propExtras[id]||[]).reduce(function(s,x){return s+x.cost;},0);
 }
+
+// Live recalculation for the per-model "What if I want a higher return?" slider
+// on the property detail card. Reads the current model's net/build/cons from a
+// fresh calcModel() (so it respects any live offer-price or extras the user has
+// just edited) and updates only the two affected DOM nodes — no full rebuild.
+function recalcMaxLand(propId, model, targetPctStr) {
+  var pr = props.find(function(p){return p.id==propId;});
+  if (!pr) return;
+  var targetPct = parseFloat(targetPctStr);
+  if (isNaN(targetPct) || targetPct <= 0) return;
+  var lblEl = document.getElementById('rev-tgt-lbl-'+propId+'-'+model);
+  var outEl = document.getElementById('rev-out-'+propId+'-'+model);
+  if (!lblEl || !outEl) return;
+  lblEl.textContent = targetPct.toFixed(2)+'%';
+  // Recompute model with current overrides so the answer reflects what's on screen
+  var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
+  if (!sda) { outEl.textContent = '\u2014'; return; }
+  var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
+  var livePrice = propPrice[propId] || pr.price;
+  var catOverride = propCat[propId] || null;
+  var extrasTotal = getExtrasTotal(propId);
+  var m = calcModel(livePrice, pr.land, sda, model, p, catOverride, extrasTotal);
+  if (!m) { outEl.textContent = '\u2014'; return; }
+  var maxAtTarget = calcMaxLand(m.net, m.build, m.cons, p, targetPct/100);
+  outEl.textContent = '$' + maxAtTarget.toLocaleString();
+}
+
 function renderExtrasList(id) {
   var items=propExtras[id]||[];
   var total=getExtrasTotal(id);
@@ -3990,7 +4138,10 @@ function calcIRR(net,total,p){
   for(var y=1;y<=hold;y++){var rent=net*Math.pow(1+p.rg,y-1);var d=new Date(t0);d.setFullYear(d.getFullYear()+y);cfs.push(y<hold?rent:rent+net*Math.pow(1+p.rg,y-1)/p.cap-p.exitCost);dates.push(d);}
   return xirr(cfs,dates);
 }
-function calcMaxLand(net,build,cons,p){return Math.max(0,Math.round((net/getTgt()-build-cons-p.leg-p.pexa-p.val)/(1+p.stamp+p.ba)));}
+function calcMaxLand(net,build,cons,p,targetRate){
+  var tgt=(typeof targetRate==='number'&&targetRate>0)?targetRate:getTgt();
+  return Math.max(0,Math.round((net/tgt-build-cons-p.leg-p.pexa-p.val)/(1+p.stamp+p.ba)));
+}
 function calcModel(price,land,sda,model,p,catOverride,extrasTotal){
   if(!sda)return null;
   var rrc=SH.rrc,sdaRate=0,build=0,cons=0,pts=0,dw=1;
@@ -4109,6 +4260,7 @@ function applyF(){
     return 0;
   });
   updateMetrics(tgt);renderTable(tgt);
+  saveView();
 }
 
 function updateMetrics(tgt){
@@ -4152,6 +4304,10 @@ function renderTable(tgt){
     var medStr=pr.median>0?(pr.underMedian?'<span style="color:#0F6E56;font-weight:700">&#8595; under</span>':'<span style="color:#BA7517">&#8593; over</span>'):'—';
     html+='<tr class="dr" onclick="toggleD('+pr.id+')">'
       +'<td>'
+      +'<span id="star-'+pr.id+'" onclick="toggleShortlist('+pr.id+',event)" '
+      +'style="cursor:pointer;font-size:16px;margin-right:6px;color:'+(isShortlisted(pr.id)?'#F59E0B':'#D1D5DB')+';user-select:none" '
+      +'title="'+(isShortlisted(pr.id)?'Remove from shortlist':'Add to shortlist')+'">'
+      +(isShortlisted(pr.id)?'\u2605':'\u2606')+'</span>'
       +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a></td>'
       +'<td>'+fmtPrice(pr.price)+'</td>'
       +'<td>'+(pr.land>0?Math.round(pr.land)+'m\u00b2':'—')+'</td>'
@@ -4270,6 +4426,18 @@ function buildDetail(pr,tgt){
       +'<div class="dr2" style="border-top:1px solid #eee;margin-top:3px;padding-top:4px"><span class="l">POC</span><span class="v" style="color:'+(pocOk?'#0F6E56':'#A32D2D')+'">'+(m.poc*100).toFixed(1)+'% '+(pocOk?'\u2713':'\u2717')+'</span></div>'
       +'<div class="dr2"><span class="l">5-yr IRR</span><span class="v" style="color:'+(irrOk?'#0F6E56':'#A32D2D')+'">'+(m.irr?(m.irr*100).toFixed(2)+'%':'n/a')+' '+(m.irr?irrOk?'\u2713':'\u2717':'')+'</span></div>'
       +'<div class="dr2"><span class="l">Max land @ '+(getTgt()*100).toFixed(0)+'% target</span><span class="v" style="color:#185FA5">$'+m.maxL.toLocaleString()+'</span></div>'
+      +'<div style="margin-top:6px;padding:8px;background:#f0f5fb;border-radius:6px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#666;font-weight:600;margin-bottom:4px">'
+      +'<span>What if I want a higher return?</span>'
+      +'<span>Target: <span id="rev-tgt-lbl-'+pr.id+'-'+m.model+'" style="color:#185FA5;font-weight:700">'+(getTgt()*100).toFixed(1)+'%</span></span>'
+      +'</div>'
+      +'<input type="range" min="6" max="15" step="0.25" value="'+(getTgt()*100).toFixed(2)+'" '
+      +'oninput="recalcMaxLand('+pr.id+',\''+m.model+'\',this.value)" '
+      +'style="width:100%;accent-color:#185FA5">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-top:3px">'
+      +'<span style="color:#666">Max offer to hit target:</span>'
+      +'<span id="rev-out-'+pr.id+'-'+m.model+'" style="color:#0F6E56;font-weight:700;font-size:13px">$'+m.maxL.toLocaleString()+'</span>'
+      +'</div></div>'
       +'</div>';
   });
   if(!cards)cards='<div class="dcard"><p style="font-size:11px;color:#888">No viable models — land too small or SA4 has no pricing</p></div>';
@@ -4694,6 +4862,7 @@ function toggleD(id){
     }
     el.style.display='table-row';
   }
+  saveView();
 }
 function srt(k){if(sortK===k)sortD*=-1;else{sortK=k;sortD=['price','land','dem','maxl'].indexOf(k)>=0?1:-1;}document.getElementById('stsort').textContent='sorted by '+k+' '+(sortD>0?'\u2191':'\u2193');applyF();}
 
@@ -5705,6 +5874,7 @@ document.addEventListener('click', function(e) {
 applyPendingSliderValues();
 
 renderPricing();renderDemand();
+updateShortlistButton();
 
 var DEFAULT_PARAMS=JSON.parse(JSON.stringify(TRUE_DEFAULT_PARAMS));
 var DEFAULT_SH=JSON.parse(JSON.stringify(TRUE_DEFAULT_SH));
@@ -5814,6 +5984,176 @@ function openLookup(){
 function closeLookup(){
   document.getElementById('lookup-modal').style.display='none';
 }
+
+// === Shortlist comparison modal ==========================================
+function openShortlist(){
+  if (shortlistIds.length === 0) {
+    alert('No properties starred yet.\n\nClick the \u2606 icon next to any property in the table to add it to your shortlist.');
+    return;
+  }
+  document.getElementById('shortlist-modal').style.display='block';
+  renderShortlist();
+}
+function closeShortlist(){
+  document.getElementById('shortlist-modal').style.display='none';
+}
+function clearShortlist(){
+  if (!confirm('Remove all '+shortlistIds.length+' properties from the shortlist?')) return;
+  // Save the IDs we're clearing so we can update each star icon on the table
+  var ids = shortlistIds.slice();
+  shortlistIds = [];
+  saveShortlist();
+  updateShortlistButton();
+  // Update star icons for all the cleared properties
+  ids.forEach(function(id){
+    var star = document.getElementById('star-'+id);
+    if (star) {
+      star.textContent = '\u2606';
+      star.style.color = '#D1D5DB';
+      star.title = 'Add to shortlist';
+    }
+  });
+  renderShortlist();
+}
+function removeFromShortlist(id){
+  toggleShortlist(id);
+  renderShortlist();
+}
+function renderShortlist(){
+  var container = document.getElementById('sl-content');
+  if (!container) return;
+  if (shortlistIds.length === 0) {
+    container.innerHTML = '<div class="empty">Shortlist is empty. Close this and click \u2606 next to properties in the table to add them.</div>';
+    return;
+  }
+  // Resolve IDs to property objects, drop any that aren't loaded
+  var picks = shortlistIds.map(function(id){
+    return props.find(function(p){return p.id == id;});
+  }).filter(Boolean);
+  if (picks.length === 0) {
+    container.innerHTML = '<div class="empty">Shortlisted properties are not currently loaded. Reload the matching state CSV to compare them.</div>';
+    return;
+  }
+  var modelSel = document.getElementById('sl-model');
+  var modelChoice = modelSel ? modelSel.value : 'best';
+  var lvr = getLvr(), ir = getIr(), tgt = getTgt();
+  // For each property pick the model row to show
+  var rows = picks.map(function(pr){
+    var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
+    var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
+    var livePrice = propPrice[pr.id] || pr.price;
+    var catOverride = propCat[pr.id] || null;
+    var extrasTotal = getExtrasTotal(pr.id);
+    var allModels = sda ? ['2p','3p','dp'].map(function(m){
+      return calcModel(livePrice, pr.land, sda, m, p, catOverride, extrasTotal);
+    }).filter(Boolean) : [];
+    var chosen;
+    if (modelChoice === 'best') {
+      // Best by unlevered return
+      chosen = allModels.slice().sort(function(a,b){return b.ret - a.ret;})[0] || null;
+    } else {
+      chosen = allModels.find(function(m){return m.model === modelChoice;}) || null;
+    }
+    var lev = null;
+    if (chosen) {
+      var equity = chosen.total*(1-lvr);
+      lev = equity > 0 ? (chosen.net - chosen.total*lvr*ir)/equity : 0;
+    }
+    return { pr: pr, m: chosen, lev: lev, livePrice: livePrice };
+  });
+  // Compute "best in row" indices for each metric (highest = best)
+  function bestIdx(extractor) {
+    var bestVal = -Infinity, bestI = -1;
+    rows.forEach(function(r, i){
+      var v = extractor(r);
+      if (v != null && isFinite(v) && v > bestVal) { bestVal = v; bestI = i; }
+    });
+    return bestI;
+  }
+  var idxRet  = bestIdx(function(r){return r.m ? r.m.ret : null;});
+  var idxLev  = bestIdx(function(r){return r.lev;});
+  var idxPOC  = bestIdx(function(r){return r.m ? r.m.poc : null;});
+  var idxIRR  = bestIdx(function(r){return r.m && r.m.irr ? r.m.irr : null;});
+  var idxNet  = bestIdx(function(r){return r.m ? r.m.net : null;});
+  var idxMax  = bestIdx(function(r){return r.m ? r.m.maxL : null;});
+  // Lower is better for price and total cost
+  function worstIdx(extractor) {
+    var bestVal = Infinity, bestI = -1;
+    rows.forEach(function(r, i){
+      var v = extractor(r);
+      if (v != null && isFinite(v) && v < bestVal) { bestVal = v; bestI = i; }
+    });
+    return bestI;
+  }
+  var idxPrice = worstIdx(function(r){return r.livePrice;});
+  var idxTotal = worstIdx(function(r){return r.m ? r.m.total : null;});
+
+  function cell(content, isBest, extra) {
+    var bg = isBest ? 'background:#dcfce7;font-weight:700;color:#0F6E56' : '';
+    return '<td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-size:12px;'+bg+';'+(extra||'')+'">'+content+'</td>';
+  }
+  function pct(v){return v!=null?(v*100).toFixed(2)+'%':'—';}
+  function dollar(v){return v!=null&&isFinite(v)?'$'+Math.round(v).toLocaleString():'—';}
+  var MN = {'2p':'2P House','3p':'3P House','dp':'Duplex'};
+  var MC2 = {'2p':'b2p','3p':'b3p','dp':'bdp'};
+  var SC2 = {'vic':'bvic','nsw':'bnsw','qld':'bqld'};
+
+  // Header row: property addresses with state badge + remove button
+  var headerCells = rows.map(function(r){
+    var pr = r.pr;
+    var stB = pr.state ? '<span class="badge '+(SC2[pr.state]||'')+'" style="font-size:9px">'+pr.state.toUpperCase()+'</span>' : '';
+    var modelB = r.m ? '<span class="badge '+(MC2[r.m.model]||'')+'" style="font-size:9px;margin-left:4px">'+MN[r.m.model]+'</span>' : '';
+    return '<th style="padding:8px 10px;border:1px solid #e5e7eb;background:#fef3c7;text-align:left;font-size:11px;min-width:200px;vertical-align:top">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+      +   '<div style="flex:1;min-width:0">'
+      +     '<div style="font-weight:700;color:#92400e;line-height:1.3;cursor:pointer" onclick="closeShortlist();toggleD('+pr.id+');document.getElementById(\'dtr-'+pr.id+'\').scrollIntoView({behavior:\'smooth\',block:\'center\'})" title="Open full detail">'+escHtml(pr.addr)+'</div>'
+      +     '<div style="margin-top:4px">'+stB+modelB+'</div>'
+      +     '<div style="font-size:10px;color:#92400e;margin-top:3px">'+escHtml(pr.sa4)+'</div>'
+      +   '</div>'
+      +   '<span onclick="removeFromShortlist('+pr.id+')" style="cursor:pointer;color:#A32D2D;font-size:18px;font-weight:700;line-height:1;padding:0 4px" title="Remove from shortlist">&times;</span>'
+      + '</div>'
+      + '</th>';
+  }).join('');
+
+  // Body rows
+  function bodyRow(label, valuesFn, highlightIdx, extraStyle) {
+    var cells = rows.map(function(r,i){
+      return cell(valuesFn(r), i===highlightIdx, extraStyle);
+    }).join('');
+    return '<tr><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f9fafb;text-align:left;font-size:11px;font-weight:600;color:#6B7280;white-space:nowrap">'+label+'</th>'+cells+'</tr>';
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-family:Arial">'
+    + '<thead><tr><th style="padding:8px 10px;border:1px solid #e5e7eb;background:#fef3c7;text-align:left;font-size:11px;color:#92400e;min-width:140px">Property</th>'+headerCells+'</tr></thead>'
+    + '<tbody>'
+    + bodyRow('Offer / list price', function(r){return dollar(r.livePrice) + (propPrice[r.pr.id]?' <span style="font-size:9px;color:#185FA5">(offer)</span>':'');}, idxPrice)
+    + bodyRow('Land', function(r){return r.pr.land>0 ? Math.round(r.pr.land)+' m\u00B2' : '\u2014';}, -1)
+    + bodyRow('vs SA4 median', function(r){
+        if (!r.pr.median || r.pr.median<=0) return '\u2014';
+        return r.pr.underMedian
+          ? '<span style="color:#0F6E56">\u2193 $'+(r.pr.median - r.livePrice).toLocaleString()+'</span>'
+          : '<span style="color:#BA7517">\u2191 $'+(r.livePrice - r.pr.median).toLocaleString()+'</span>';
+      }, -1)
+    + bodyRow('SA4 demand', function(r){return r.pr.sda ? r.pr.sda.d : '\u2014';}, -1)
+    + bodyRow('Build model', function(r){return r.m ? MN[r.m.model] : '\u2014';}, -1)
+    + bodyRow('Participants', function(r){return r.m ? r.m.pts : '\u2014';}, -1)
+    + bodyRow('SDA rate / participant', function(r){return r.m ? dollar(r.m.sdaRate) : '\u2014';}, -1)
+    + bodyRow('Gross income / yr', function(r){return r.m ? dollar(r.m.gross) : '\u2014';}, -1)
+    + bodyRow('Net income / yr', function(r){return r.m ? dollar(r.m.net) : '\u2014';}, idxNet)
+    + bodyRow('Total project cost', function(r){return r.m ? dollar(r.m.total) : '\u2014';}, idxTotal)
+    + bodyRow('Net return (unlevered)', function(r){return r.m ? pct(r.m.ret) : '\u2014';}, idxRet, 'font-size:13px')
+    + bodyRow('Net return (levered @ '+Math.round(lvr*100)+'%)', function(r){return r.lev != null ? pct(r.lev) : '\u2014';}, idxLev, 'font-size:13px')
+    + bodyRow('POC', function(r){return r.m ? pct(r.m.poc) : '\u2014';}, idxPOC)
+    + bodyRow('5-yr IRR', function(r){return r.m && r.m.irr ? pct(r.m.irr) : '\u2014';}, idxIRR)
+    + bodyRow('Max land @ '+(tgt*100).toFixed(0)+'% target', function(r){return r.m ? dollar(r.m.maxL) : '\u2014';}, idxMax)
+    + bodyRow('Site fits', function(r){
+        var fits = siteFitModels(r.pr);
+        if (!fits.length) return '<span style="color:#A32D2D">none</span>';
+        return fits.map(function(m){return '<span class="badge '+(MC2[m]||'')+'" style="font-size:9px;padding:1px 5px">'+MN[m]+'</span>';}).join(' ');
+      }, -1)
+    + '</tbody></table>';
+  container.innerHTML = html;
+}
+// =========================================================================
 
 function dRow(label, value, highlight){
   return '<div style="display:flex;justify-content:space-between;align-items:center;'
@@ -6272,6 +6612,35 @@ function autoLoadFromServer(){
   </div>
 </div>
 
+<!-- ============ SHORTLIST COMPARISON MODAL ============ -->
+<div id="shortlist-modal" class="modal-overlay">
+  <div class="modal-card" style="max-width:1400px">
+    <div class="modal-head" style="background:#F59E0B">
+      <h2>&#9733; Shortlist comparison</h2>
+      <button class="modal-close" onclick="closeShortlist()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+        <p style="font-size:11px;color:#6B7280;margin:0">Side-by-side comparison of your starred properties. Best value in each row is highlighted green. Click a property header to open its full detail.</p>
+        <div style="display:flex;gap:8px">
+          <select id="sl-model" onchange="renderShortlist()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px">
+            <option value="best">Best of each</option>
+            <option value="2p">2P House (all)</option>
+            <option value="3p">3P House (all)</option>
+            <option value="dp">Duplex (all)</option>
+          </select>
+          <button class="modal-btn btn-danger" onclick="clearShortlist()" style="font-size:11px;padding:6px 12px">Clear all</button>
+        </div>
+      </div>
+      <div id="sl-content" style="overflow-x:auto"></div>
+    </div>
+    <div class="modal-foot">
+      <span style="font-size:10px;color:#9CA3AF">Tip: star up to 6 properties for a clean side-by-side view.</span>
+      <button class="modal-btn btn-secondary" onclick="closeShortlist()">Close</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Make settings & lookup modals show/hide via class for opacity-friendly behaviour
 // Open functions in main script set display='block' directly; this is fine.
@@ -6282,11 +6651,15 @@ document.getElementById('settings-modal').addEventListener('click', function(e){
 document.getElementById('lookup-modal').addEventListener('click', function(e){
   if (e.target === this) closeLookup();
 });
+document.getElementById('shortlist-modal').addEventListener('click', function(e){
+  if (e.target === this) closeShortlist();
+});
 // Close on Escape
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') {
     if (document.getElementById('settings-modal').style.display === 'block') closeSettings();
     if (document.getElementById('lookup-modal').style.display === 'block') closeLookup();
+    if (document.getElementById('shortlist-modal').style.display === 'block') closeShortlist();
   }
 });
 </script>

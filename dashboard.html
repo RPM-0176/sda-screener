@@ -3861,8 +3861,8 @@ function getCatRate(sda, model, catOverride){
       return best3>0?best3:0;
     }
     if(cat==='hps'||cat==='hps_hps_hps') return hps3||0;
-    if(cat==='fa'||cat==='fa_fa_fa')     return fa3||0;
-    if(cat==='il'||cat==='il_il')        return il3||0;
+    if(cat==='fa' ||cat==='fa_fa_fa')    return fa3||0;
+    if(cat==='il' ||cat==='il_il_il')    return il3||0;
     if(cat==='hps_hps_fa')  return (hps3&&fa3)?((hps3*2+fa3)/3):0;
     if(cat==='hps_hps_il')  return (hps3&&il3)?((hps3*2+il3)/3):0;
     if(cat==='hps_fa_fa')   return (hps3&&fa3)?((hps3+fa3*2)/3):0;

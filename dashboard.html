@@ -53,7 +53,7 @@ td{padding:7px 9px;border-bottom:1px solid #f0f0ee;vertical-align:middle}
 tr.dr{cursor:pointer}
 tr.dr:hover td{background:#fafaf9}
 .badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px}
-.bp{background:#EAF3DE;color:#27500A}.bf{background:#FCEBEB;color:#791F1F}
+.bp{background:#EAF3DE;color:#27500A}.bf{background:#FCEBEB;color:#791F1F}.bm{background:#F0F0F0;color:#444}
 .bvic{background:#E1F5EE;color:#085041}.bnsw{background:#E6F1FB;color:#0C447C}.bqld{background:#FAEEDA;color:#633806}
 .b2p{background:#E6F1FB;color:#0C447C}.b3p{background:#E1F5EE;color:#085041}.bdp{background:#FAEEDA;color:#633806}
 .dtr{display:none;background:#fafaf9}
@@ -280,10 +280,10 @@ tr.dr:hover td{background:#fafaf9}
     <div class="fg"><label>Undersupply only</label><select id="du" onchange="renderDemand()"><option value="">All</option><option value="yes">Yes</option></select></div>
   </div>
   <div class="tw"><table>
-    <thead><tr><th style="width:20%">SA3 area</th><th style="width:18%">SA4</th><th style="width:9%">Participants</th><th style="width:8%">In SDA</th><th style="width:8%">Seeking</th><th style="width:9%">Supply</th><th style="width:9%">1-3BR</th><th style="width:8%">Balance</th><th style="width:11%">Status</th></tr></thead>
+    <thead><tr><th style="width:18%">SA3 area</th><th style="width:18%">SA4</th><th style="width:8%">Total demand</th><th style="width:7%">In SDA</th><th style="width:8%">Eligible</th><th style="width:9%">1-3BR cap</th><th style="width:9%">Larger</th><th style="width:8%">Balance</th><th style="width:15%">Status</th></tr></thead>
     <tbody id="dtbody"></tbody>
   </table></div>
-  <p style="font-size:10px;color:#888;margin-top:8px">Source: NDIS SDA Demand Data, December 2024</p>
+  <p style="font-size:10px;color:#888;margin-top:8px">Source: NDIS Quarterly Performance Report Q4 2025 (Tables P.15 + P.17), as at 31 December 2025</p>
 </div>
 
 <div id="panel-sdamap" class="panel">
@@ -3117,9 +3117,12 @@ qld:{
 };
 
 var SDA=[
-  // Source: Base Rates tab × Location Factors tab from NDIS_How_Much_Can_I_Pay_v4.xlsx
+  // SDA rates: Base Rates tab × Location Factors tab from NDIS_How_Much_Can_I_Pay_v4.xlsx
   // IL/FA/HPS = base rate × location factor for House 2 or 3 residents
   // RRC $13,171 added per participant in calcModel
+  // 'd' (SA4 demand) = Total Participants with SDA in use or eligible (Table P.9)
+  //   Source: NDIS Quarterly Performance Report Q4 2025, as at 31 December 2025
+  //   Verified identical to existing values 2026-05 — refresh quarterly
   {st:'nsw',sa4:'Capital Region',d:182,hps2:86284,fa2:73750,il2:72340,hps3:60041,fa3:51277,il3:50107,mx2:750000,mx3:900000},
   {st:'nsw',sa4:'Central Coast',d:436,hps2:93870,fa2:80234,il2:78699,hps3:65979,fa3:56348,il3:55063,mx2:1000000,mx3:1200000},
   {st:'nsw',sa4:'Central West',d:289,hps2:89129,fa2:76181,il2:74724,hps3:62020,fa3:52967,il3:51759,mx2:750000,mx3:900000},
@@ -3219,248 +3222,259 @@ var MEDIAN={
   'Queensland - Outback':280000
 };
 var SA3D=[
-  {sa3:'Albury',sa4:'Murray',p:193,inSDA:131,seek:62,sup:86,sup13:65,pts13:95,st:'nsw'},
-  {sa3:'Armidale',sa4:'New England and North West',p:168,inSDA:105,seek:63,sup:23,sup13:18,pts13:35,st:'nsw'},
-  {sa3:'Auburn',sa4:'Sydney - Parramatta',p:554,inSDA:361,seek:193,sup:68,sup13:65,pts13:65,st:'nsw'},
-  {sa3:'Bankstown',sa4:'Sydney - Inner South West',p:468,inSDA:266,seek:202,sup:60,sup13:44,pts13:61,st:'nsw'},
-  {sa3:'Bathurst',sa4:'Central West',p:289,inSDA:187,seek:102,sup:25,sup13:11,pts13:19,st:'nsw'},
-  {sa3:'Baulkham Hills',sa4:'Sydney - Baulkham Hills and Hawkesbury',p:259,inSDA:211,seek:48,sup:62,sup13:24,pts13:27,st:'nsw'},
-  {sa3:'Blacktown',sa4:'Sydney - Blacktown',p:462,inSDA:296,seek:166,sup:93,sup13:67,pts13:89,st:'nsw'},
-  {sa3:'Blacktown - North',sa4:'Sydney - Blacktown',p:462,inSDA:296,seek:166,sup:63,sup13:35,pts13:48,st:'nsw'},
-  {sa3:'Blue Mountains',sa4:'Sydney - Outer West and Blue Mountains',p:512,inSDA:382,seek:130,sup:37,sup13:21,pts13:42,st:'nsw'},
-  {sa3:'Blue Mountains - South',sa4:'Sydney - Outer West and Blue Mountains',p:512,inSDA:382,seek:130,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Botany',sa4:'Sydney - City and Inner South',p:147,inSDA:69,seek:78,sup:20,sup13:10,pts13:18,st:'nsw'},
-  {sa3:'Bourke - Cobar - Coonamble',sa4:'Far West and Orana',p:179,inSDA:115,seek:64,sup:1,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Bringelly - Green Valley',sa4:'Sydney - South West',p:397,inSDA:185,seek:212,sup:30,sup13:19,pts13:38,st:'nsw'},
-  {sa3:'Broken Hill and Far West',sa4:'Far West and Orana',p:179,inSDA:115,seek:64,sup:3,sup13:1,pts13:3,st:'nsw'},
-  {sa3:'Camden',sa4:'Sydney - Outer South West',p:284,inSDA:155,seek:129,sup:15,sup13:8,pts13:14,st:'nsw'},
-  {sa3:'Campbelltown (NSW)',sa4:'Sydney - Outer South West',p:284,inSDA:155,seek:129,sup:95,sup13:72,pts13:104,st:'nsw'},
-  {sa3:'Canada Bay',sa4:'Sydney - Inner West',p:177,inSDA:93,seek:84,sup:25,sup13:20,pts13:24,st:'nsw'},
-  {sa3:'Canterbury',sa4:'Sydney - Inner South West',p:468,inSDA:266,seek:202,sup:35,sup13:19,pts13:24,st:'nsw'},
-  {sa3:'Carlingford',sa4:'Sydney - Parramatta',p:554,inSDA:361,seek:193,sup:26,sup13:17,pts13:25,st:'nsw'},
-  {sa3:'Chatswood - Lane Cove',sa4:'Sydney - North Sydney and Hornsby',p:233,inSDA:125,seek:108,sup:21,sup13:20,pts13:25,st:'nsw'},
-  {sa3:'Clarence Valley',sa4:'Coffs Harbour - Grafton',p:149,inSDA:78,seek:71,sup:11,sup13:5,pts13:13,st:'nsw'},
-  {sa3:'Coffs Harbour',sa4:'Coffs Harbour - Grafton',p:149,inSDA:78,seek:71,sup:20,sup13:10,pts13:17,st:'nsw'},
-  {sa3:'Cronulla - Miranda - Caringbah',sa4:'Sydney - Sutherland',p:263,inSDA:192,seek:71,sup:73,sup13:48,pts13:75,st:'nsw'},
-  {sa3:'Dapto - Port Kembla',sa4:'Illawarra',p:369,inSDA:228,seek:141,sup:30,sup13:19,pts13:45,st:'nsw'},
-  {sa3:'Dubbo',sa4:'Far West and Orana',p:179,inSDA:115,seek:64,sup:73,sup13:51,pts13:75,st:'nsw'},
-  {sa3:'Dural - Wisemans Ferry',sa4:'Sydney - Baulkham Hills and Hawkesbury',p:259,inSDA:211,seek:48,sup:8,sup13:2,pts13:5,st:'nsw'},
-  {sa3:'Eastern Suburbs - North',sa4:'Sydney - Eastern Suburbs',p:94,inSDA:44,seek:50,sup:2,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Eastern Suburbs - South',sa4:'Sydney - Eastern Suburbs',p:94,inSDA:44,seek:50,sup:15,sup13:4,pts13:6,st:'nsw'},
-  {sa3:'Fairfield',sa4:'Sydney - South West',p:397,inSDA:185,seek:212,sup:72,sup13:59,pts13:86,st:'nsw'},
-  {sa3:'Gosford',sa4:'Central Coast',p:436,inSDA:278,seek:158,sup:103,sup13:87,pts13:107,st:'nsw'},
-  {sa3:'Goulburn - Mulwaree',sa4:'Capital Region',p:182,inSDA:116,seek:66,sup:19,sup13:7,pts13:9,st:'nsw'},
-  {sa3:'Great Lakes',sa4:'Mid North Coast',p:248,inSDA:140,seek:108,sup:8,sup13:6,pts13:13,st:'nsw'},
-  {sa3:'Griffith - Murrumbidgee (West)',sa4:'Riverina',p:179,inSDA:110,seek:69,sup:14,sup13:8,pts13:15,st:'nsw'},
-  {sa3:'Hawkesbury',sa4:'Sydney - Baulkham Hills and Hawkesbury',p:259,inSDA:211,seek:48,sup:6,sup13:2,pts13:4,st:'nsw'},
-  {sa3:'Hornsby',sa4:'Sydney - North Sydney and Hornsby',p:233,inSDA:125,seek:108,sup:51,sup13:37,pts13:45,st:'nsw'},
-  {sa3:'Hurstville',sa4:'Sydney - Inner South West',p:468,inSDA:266,seek:202,sup:23,sup13:8,pts13:16,st:'nsw'},
-  {sa3:'Illawarra Catchment Reserve',sa4:'Illawarra',p:369,inSDA:228,seek:141,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Inverell - Tenterfield',sa4:'New England and North West',p:168,inSDA:105,seek:63,sup:4,sup13:4,pts13:5,st:'nsw'},
-  {sa3:'Kempsey - Nambucca',sa4:'Mid North Coast',p:248,inSDA:140,seek:108,sup:10,sup13:7,pts13:12,st:'nsw'},
-  {sa3:'Kiama - Shellharbour',sa4:'Illawarra',p:369,inSDA:228,seek:141,sup:34,sup13:17,pts13:32,st:'nsw'},
-  {sa3:'Kogarah - Rockdale',sa4:'Sydney - Inner South West',p:468,inSDA:266,seek:202,sup:62,sup13:52,pts13:55,st:'nsw'},
-  {sa3:'Ku-ring-gai',sa4:'Sydney - North Sydney and Hornsby',p:233,inSDA:125,seek:108,sup:7,sup13:3,pts13:6,st:'nsw'},
-  {sa3:'Lachlan Valley',sa4:'Central West',p:289,inSDA:187,seek:102,sup:8,sup13:5,pts13:11,st:'nsw'},
-  {sa3:'Lake Macquarie - East',sa4:'Newcastle and Lake Macquarie',p:572,inSDA:401,seek:171,sup:71,sup13:54,pts13:81,st:'nsw'},
-  {sa3:'Lake Macquarie - West',sa4:'Newcastle and Lake Macquarie',p:572,inSDA:401,seek:171,sup:48,sup13:37,pts13:79,st:'nsw'},
-  {sa3:'Leichhardt',sa4:'Sydney - Inner West',p:177,inSDA:93,seek:84,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Lithgow - Mudgee',sa4:'Central West',p:289,inSDA:187,seek:102,sup:24,sup13:20,pts13:28,st:'nsw'},
-  {sa3:'Liverpool',sa4:'Sydney - South West',p:397,inSDA:185,seek:212,sup:104,sup13:89,pts13:105,st:'nsw'},
-  {sa3:'Lord Howe Island',sa4:'Mid North Coast',p:248,inSDA:140,seek:108,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Lower Hunter',sa4:'Hunter Valley exc Newcastle',p:263,inSDA:150,seek:113,sup:32,sup13:26,pts13:47,st:'nsw'},
-  {sa3:'Lower Murray',sa4:'Murray',p:193,inSDA:131,seek:62,sup:1,sup13:1,pts13:2,st:'nsw'},
-  {sa3:'Maitland',sa4:'Hunter Valley exc Newcastle',p:263,inSDA:150,seek:113,sup:37,sup13:22,pts13:46,st:'nsw'},
-  {sa3:'Manly',sa4:'Sydney - Northern Beaches',p:259,inSDA:183,seek:76,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Marrickville - Sydenham - Petersham',sa4:'Sydney - City and Inner South',p:147,inSDA:69,seek:78,sup:2,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Merrylands - Guildford',sa4:'Sydney - Parramatta',p:554,inSDA:361,seek:193,sup:152,sup13:127,pts13:148,st:'nsw'},
-  {sa3:'Moree - Narrabri',sa4:'New England and North West',p:168,inSDA:105,seek:63,sup:3,sup13:1,pts13:3,st:'nsw'},
-  {sa3:'Mount Druitt',sa4:'Sydney - Blacktown',p:462,inSDA:296,seek:166,sup:24,sup13:10,pts13:22,st:'nsw'},
-  {sa3:'Newcastle',sa4:'Newcastle and Lake Macquarie',p:572,inSDA:401,seek:171,sup:116,sup13:87,pts13:127,st:'nsw'},
-  {sa3:'North Sydney - Mosman',sa4:'Sydney - North Sydney and Hornsby',p:233,inSDA:125,seek:108,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Orange',sa4:'Central West',p:289,inSDA:187,seek:102,sup:52,sup13:25,pts13:32,st:'nsw'},
-  {sa3:'Parramatta',sa4:'Sydney - Parramatta',p:554,inSDA:361,seek:193,sup:108,sup13:90,pts13:114,st:'nsw'},
-  {sa3:'Pennant Hills - Epping',sa4:'Sydney - Ryde',p:334,inSDA:266,seek:68,sup:18,sup13:12,pts13:15,st:'nsw'},
-  {sa3:'Penrith',sa4:'Sydney - Outer West and Blue Mountains',p:512,inSDA:382,seek:130,sup:218,sup13:188,pts13:273,st:'nsw'},
-  {sa3:'Pittwater',sa4:'Sydney - Northern Beaches',p:259,inSDA:183,seek:76,sup:8,sup13:1,pts13:1,st:'nsw'},
-  {sa3:'Port Macquarie',sa4:'Mid North Coast',p:248,inSDA:140,seek:108,sup:33,sup13:25,pts13:44,st:'nsw'},
-  {sa3:'Port Stephens',sa4:'Hunter Valley exc Newcastle',p:263,inSDA:150,seek:113,sup:14,sup13:7,pts13:14,st:'nsw'},
-  {sa3:'Queanbeyan',sa4:'Capital Region',p:182,inSDA:116,seek:66,sup:8,sup13:2,pts13:5,st:'nsw'},
-  {sa3:'Richmond - Windsor',sa4:'Sydney - Outer West and Blue Mountains',p:512,inSDA:382,seek:130,sup:17,sup13:11,pts13:25,st:'nsw'},
-  {sa3:'Richmond Valley - Coastal',sa4:'Richmond - Tweed',p:287,inSDA:157,seek:130,sup:33,sup13:24,pts13:40,st:'nsw'},
-  {sa3:'Richmond Valley - Hinterland',sa4:'Richmond - Tweed',p:287,inSDA:157,seek:130,sup:25,sup13:14,pts13:23,st:'nsw'},
-  {sa3:'Rouse Hill - McGraths Hill',sa4:'Sydney - Baulkham Hills and Hawkesbury',p:259,inSDA:211,seek:48,sup:14,sup13:12,pts13:14,st:'nsw'},
-  {sa3:'Ryde - Hunters Hill',sa4:'Sydney - Ryde',p:334,inSDA:266,seek:68,sup:133,sup13:100,pts13:136,st:'nsw'},
-  {sa3:'Shoalhaven',sa4:'Southern Highlands and Shoalhaven',p:167,inSDA:88,seek:79,sup:37,sup13:26,pts13:55,st:'nsw'},
-  {sa3:'Snowy Mountains',sa4:'Capital Region',p:182,inSDA:116,seek:66,sup:0,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'South Coast',sa4:'Capital Region',p:182,inSDA:116,seek:66,sup:21,sup13:18,pts13:22,st:'nsw'},
-  {sa3:'Southern Highlands',sa4:'Southern Highlands and Shoalhaven',p:167,inSDA:88,seek:79,sup:5,sup13:2,pts13:5,st:'nsw'},
-  {sa3:'St Marys',sa4:'Sydney - Outer West and Blue Mountains',p:512,inSDA:382,seek:130,sup:45,sup13:38,pts13:45,st:'nsw'},
-  {sa3:'Strathfield - Burwood - Ashfield',sa4:'Sydney - Inner West',p:177,inSDA:93,seek:84,sup:52,sup13:42,pts13:49,st:'nsw'},
-  {sa3:'Sutherland - Menai - Heathcote',sa4:'Sydney - Sutherland',p:263,inSDA:192,seek:71,sup:46,sup13:35,pts13:41,st:'nsw'},
-  {sa3:'Sydney Inner City',sa4:'Sydney - City and Inner South',p:147,inSDA:69,seek:78,sup:33,sup13:28,pts13:36,st:'nsw'},
-  {sa3:'Tamworth - Gunnedah',sa4:'New England and North West',p:168,inSDA:105,seek:63,sup:36,sup13:19,pts13:29,st:'nsw'},
-  {sa3:'Taree - Gloucester',sa4:'Mid North Coast',p:248,inSDA:140,seek:108,sup:30,sup13:24,pts13:50,st:'nsw'},
-  {sa3:'Tumut - Tumbarumba',sa4:'Riverina',p:179,inSDA:110,seek:69,sup:2,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Tweed Valley',sa4:'Richmond - Tweed',p:287,inSDA:157,seek:130,sup:17,sup13:11,pts13:16,st:'nsw'},
-  {sa3:'Upper Hunter',sa4:'Hunter Valley exc Newcastle',p:263,inSDA:150,seek:113,sup:1,sup13:0,pts13:0,st:'nsw'},
-  {sa3:'Upper Murray exc. Albury',sa4:'Murray',p:193,inSDA:131,seek:62,sup:9,sup13:6,pts13:9,st:'nsw'},
-  {sa3:'Wagga Wagga',sa4:'Riverina',p:179,inSDA:110,seek:69,sup:49,sup13:35,pts13:61,st:'nsw'},
-  {sa3:'Warringah',sa4:'Sydney - Northern Beaches',p:259,inSDA:183,seek:76,sup:71,sup13:37,pts13:59,st:'nsw'},
-  {sa3:'Wollondilly',sa4:'Sydney - Outer South West',p:284,inSDA:155,seek:129,sup:7,sup13:5,pts13:5,st:'nsw'},
-  {sa3:'Wollongong',sa4:'Illawarra',p:369,inSDA:228,seek:141,sup:57,sup13:46,pts13:48,st:'nsw'},
-  {sa3:'Wyong',sa4:'Central Coast',p:436,inSDA:278,seek:158,sup:83,sup13:44,pts13:83,st:'nsw'},
-  {sa3:'Young - Yass',sa4:'Capital Region',p:182,inSDA:116,seek:66,sup:12,sup13:9,pts13:9,st:'nsw'},
-  {sa3:'Bald Hills - Everton Park',sa4:'Brisbane - North',p:203,inSDA:113,seek:90,sup:11,sup13:9,pts13:23,st:'qld'},
-  {sa3:'Beaudesert',sa4:'Logan - Beaudesert',p:377,inSDA:255,seek:122,sup:27,sup13:27,pts13:42,st:'qld'},
-  {sa3:'Beenleigh',sa4:'Logan - Beaudesert',p:377,inSDA:255,seek:122,sup:36,sup13:35,pts13:52,st:'qld'},
-  {sa3:'Biloela',sa4:'Central Queensland',p:184,inSDA:92,seek:92,sup:0,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Bowen Basin - North',sa4:'Mackay - Isaac - Whitsunday',p:101,inSDA:69,seek:32,sup:8,sup13:8,pts13:11,st:'qld'},
-  {sa3:'Bribie - Beachmere',sa4:'Moreton Bay - North',p:373,inSDA:247,seek:126,sup:12,sup13:12,pts13:27,st:'qld'},
-  {sa3:'Brisbane Inner',sa4:'Brisbane Inner City',p:122,inSDA:76,seek:46,sup:13,sup13:13,pts13:13,st:'qld'},
-  {sa3:'Brisbane Inner - East',sa4:'Brisbane Inner City',p:122,inSDA:76,seek:46,sup:15,sup13:15,pts13:15,st:'qld'},
-  {sa3:'Brisbane Inner - North',sa4:'Brisbane Inner City',p:122,inSDA:76,seek:46,sup:43,sup13:41,pts13:48,st:'qld'},
-  {sa3:'Brisbane Inner - West',sa4:'Brisbane Inner City',p:122,inSDA:76,seek:46,sup:13,sup13:13,pts13:13,st:'qld'},
-  {sa3:'Broadbeach - Burleigh',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:28,sup13:28,pts13:35,st:'qld'},
-  {sa3:'Browns Plains',sa4:'Logan - Beaudesert',p:377,inSDA:255,seek:122,sup:101,sup13:94,pts13:194,st:'qld'},
-  {sa3:'Buderim',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:10,sup13:8,pts13:14,st:'qld'},
-  {sa3:'Bundaberg',sa4:'Wide Bay',p:337,inSDA:224,seek:113,sup:68,sup13:65,pts13:125,st:'qld'},
-  {sa3:'Burnett',sa4:'Wide Bay',p:337,inSDA:224,seek:113,sup:7,sup13:5,pts13:11,st:'qld'},
-  {sa3:'Caboolture',sa4:'Moreton Bay - North',p:373,inSDA:247,seek:126,sup:106,sup13:100,pts13:169,st:'qld'},
-  {sa3:'Caboolture Hinterland',sa4:'Moreton Bay - North',p:373,inSDA:247,seek:126,sup:3,sup13:3,pts13:6,st:'qld'},
-  {sa3:'Cairns - North',sa4:'Cairns',p:220,inSDA:124,seek:96,sup:19,sup13:19,pts13:35,st:'qld'},
-  {sa3:'Cairns - South',sa4:'Cairns',p:220,inSDA:124,seek:96,sup:112,sup13:107,pts13:159,st:'qld'},
-  {sa3:'Caloundra',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:61,sup13:59,pts13:108,st:'qld'},
-  {sa3:'Capalaba',sa4:'Brisbane - East',p:224,inSDA:136,seek:88,sup:25,sup13:23,pts13:50,st:'qld'},
-  {sa3:'Carindale',sa4:'Brisbane - South',p:223,inSDA:112,seek:111,sup:15,sup13:15,pts13:21,st:'qld'},
-  {sa3:'Centenary',sa4:'Brisbane - West',p:128,inSDA:86,seek:42,sup:14,sup13:14,pts13:15,st:'qld'},
-  {sa3:'Central Highlands (Qld)',sa4:'Central Queensland',p:184,inSDA:92,seek:92,sup:5,sup13:5,pts13:6,st:'qld'},
-  {sa3:'Charters Towers - Ayr - Ingham',sa4:'Townsville',p:224,inSDA:129,seek:95,sup:3,sup13:1,pts13:3,st:'qld'},
-  {sa3:'Chermside',sa4:'Brisbane - North',p:203,inSDA:113,seek:90,sup:34,sup13:34,pts13:41,st:'qld'},
-  {sa3:'Cleveland - Stradbroke',sa4:'Brisbane - East',p:224,inSDA:136,seek:88,sup:89,sup13:89,pts13:155,st:'qld'},
-  {sa3:'Coolangatta',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:23,sup13:22,pts13:24,st:'qld'},
-  {sa3:'Darling Downs (West) - Maranoa',sa4:'Darling Downs - Maranoa',p:62,inSDA:29,seek:33,sup:3,sup13:3,pts13:7,st:'qld'},
-  {sa3:'Darling Downs - East',sa4:'Darling Downs - Maranoa',p:62,inSDA:29,seek:33,sup:5,sup13:5,pts13:9,st:'qld'},
-  {sa3:'Far North',sa4:'Queensland - Outback',p:20,inSDA:0,seek:20,sup:0,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Forest Lake - Oxley',sa4:'Ipswich',p:489,inSDA:264,seek:225,sup:49,sup13:44,pts13:68,st:'qld'},
-  {sa3:'Gladstone',sa4:'Central Queensland',p:184,inSDA:92,seek:92,sup:13,sup13:12,pts13:17,st:'qld'},
-  {sa3:'Gold Coast - North',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:20,sup13:19,pts13:21,st:'qld'},
-  {sa3:'Gold Coast Hinterland',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:0,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Granite Belt',sa4:'Darling Downs - Maranoa',p:62,inSDA:29,seek:33,sup:14,sup13:11,pts13:25,st:'qld'},
-  {sa3:'Gympie - Cooloola',sa4:'Wide Bay',p:337,inSDA:224,seek:113,sup:15,sup13:14,pts13:29,st:'qld'},
-  {sa3:'Hervey Bay',sa4:'Wide Bay',p:337,inSDA:224,seek:113,sup:84,sup13:77,pts13:149,st:'qld'},
-  {sa3:'Holland Park - Yeronga',sa4:'Brisbane - South',p:223,inSDA:112,seek:111,sup:34,sup13:34,pts13:37,st:'qld'},
-  {sa3:'Innisfail - Cassowary Coast',sa4:'Cairns',p:220,inSDA:124,seek:96,sup:5,sup13:3,pts13:9,st:'qld'},
-  {sa3:'Ipswich Hinterland',sa4:'Ipswich',p:489,inSDA:264,seek:225,sup:24,sup13:24,pts13:51,st:'qld'},
-  {sa3:'Ipswich Inner',sa4:'Ipswich',p:489,inSDA:264,seek:225,sup:160,sup13:158,pts13:325,st:'qld'},
-  {sa3:'Jimboomba',sa4:'Logan - Beaudesert',p:377,inSDA:255,seek:122,sup:26,sup13:26,pts13:58,st:'qld'},
-  {sa3:'Kenmore - Brookfield - Moggill',sa4:'Brisbane - West',p:128,inSDA:86,seek:42,sup:13,sup13:13,pts13:27,st:'qld'},
-  {sa3:'Loganlea - Carbrook',sa4:'Logan - Beaudesert',p:377,inSDA:255,seek:122,sup:104,sup13:99,pts13:139,st:'qld'},
-  {sa3:'Mackay',sa4:'Mackay - Isaac - Whitsunday',p:101,inSDA:69,seek:32,sup:67,sup13:61,pts13:107,st:'qld'},
-  {sa3:'Maroochy',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:14,sup13:13,pts13:14,st:'qld'},
-  {sa3:'Maryborough',sa4:'Wide Bay',p:337,inSDA:224,seek:113,sup:34,sup13:31,pts13:66,st:'qld'},
-  {sa3:'Mt Gravatt',sa4:'Brisbane - South',p:223,inSDA:112,seek:111,sup:12,sup13:11,pts13:11,st:'qld'},
-  {sa3:'Mudgeeraba - Tallebudgera',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:4,sup13:4,pts13:8,st:'qld'},
-  {sa3:'Nambour',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:22,sup13:18,pts13:33,st:'qld'},
-  {sa3:'Narangba - Burpengary',sa4:'Moreton Bay - North',p:373,inSDA:247,seek:126,sup:55,sup13:47,pts13:105,st:'qld'},
-  {sa3:'Nathan',sa4:'Brisbane - South',p:223,inSDA:112,seek:111,sup:7,sup13:5,pts13:11,st:'qld'},
-  {sa3:'Nerang',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:11,sup13:10,pts13:16,st:'qld'},
-  {sa3:'Noosa',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:3,sup13:2,pts13:6,st:'qld'},
-  {sa3:'Noosa Hinterland',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:2,sup13:2,pts13:2,st:'qld'},
-  {sa3:'North Lakes',sa4:'Moreton Bay - South',p:138,inSDA:87,seek:51,sup:54,sup13:53,pts13:79,st:'qld'},
-  {sa3:'Nundah',sa4:'Brisbane - North',p:203,inSDA:113,seek:90,sup:43,sup13:39,pts13:60,st:'qld'},
-  {sa3:'Ormeau - Oxenford',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:91,sup13:90,pts13:169,st:'qld'},
-  {sa3:'Outback - North',sa4:'Queensland - Outback',p:20,inSDA:0,seek:20,sup:0,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Outback - South',sa4:'Queensland - Outback',p:20,inSDA:0,seek:20,sup:0,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Port Douglas - Daintree',sa4:'Cairns',p:220,inSDA:124,seek:96,sup:3,sup13:3,pts13:9,st:'qld'},
-  {sa3:'Redcliffe',sa4:'Moreton Bay - North',p:373,inSDA:247,seek:126,sup:34,sup13:32,pts13:61,st:'qld'},
-  {sa3:'Robina',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:25,sup13:25,pts13:29,st:'qld'},
-  {sa3:'Rockhampton',sa4:'Central Queensland',p:184,inSDA:92,seek:92,sup:59,sup13:47,pts13:75,st:'qld'},
-  {sa3:'Rocklea - Acacia Ridge',sa4:'Brisbane - South',p:223,inSDA:112,seek:111,sup:27,sup13:26,pts13:56,st:'qld'},
-  {sa3:'Sandgate',sa4:'Brisbane - North',p:203,inSDA:113,seek:90,sup:16,sup13:14,pts13:29,st:'qld'},
-  {sa3:'Sherwood - Indooroopilly',sa4:'Brisbane - West',p:128,inSDA:86,seek:42,sup:3,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Southport',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:53,sup13:50,pts13:56,st:'qld'},
-  {sa3:'Springfield - Redbank',sa4:'Ipswich',p:489,inSDA:264,seek:225,sup:77,sup13:74,pts13:144,st:'qld'},
-  {sa3:'Springwood - Kingston',sa4:'Logan - Beaudesert',p:377,inSDA:255,seek:122,sup:35,sup13:35,pts13:55,st:'qld'},
-  {sa3:'Strathpine',sa4:'Moreton Bay - South',p:138,inSDA:87,seek:51,sup:28,sup13:25,pts13:52,st:'qld'},
-  {sa3:'Sunnybank',sa4:'Brisbane - South',p:223,inSDA:112,seek:111,sup:13,sup13:11,pts13:20,st:'qld'},
-  {sa3:'Sunshine Coast Hinterland',sa4:'Sunshine Coast',p:300,inSDA:178,seek:122,sup:26,sup13:26,pts13:34,st:'qld'},
-  {sa3:'Surfers Paradise',sa4:'Gold Coast',p:472,inSDA:283,seek:189,sup:13,sup13:13,pts13:13,st:'qld'},
-  {sa3:'Tablelands (East) - Kuranda',sa4:'Cairns',p:220,inSDA:124,seek:96,sup:13,sup13:12,pts13:23,st:'qld'},
-  {sa3:'The Gap - Enoggera',sa4:'Brisbane - West',p:128,inSDA:86,seek:42,sup:28,sup13:27,pts13:35,st:'qld'},
-  {sa3:'The Hills District',sa4:'Moreton Bay - South',p:138,inSDA:87,seek:51,sup:20,sup13:18,pts13:22,st:'qld'},
-  {sa3:'Toowoomba',sa4:'Toowoomba',p:293,inSDA:174,seek:119,sup:180,sup13:163,pts13:287,st:'qld'},
-  {sa3:'Townsville',sa4:'Townsville',p:224,inSDA:129,seek:95,sup:196,sup13:185,pts13:335,st:'qld'},
-  {sa3:'Whitsunday',sa4:'Mackay - Isaac - Whitsunday',p:101,inSDA:69,seek:32,sup:2,sup13:0,pts13:0,st:'qld'},
-  {sa3:'Wynnum - Manly',sa4:'Brisbane - East',p:224,inSDA:136,seek:88,sup:50,sup13:50,pts13:68,st:'qld'},
-  {sa3:'Ballarat',sa4:'Ballarat',p:332,inSDA:276,seek:56,sup:236,sup13:209,pts13:352,st:'vic'},
-  {sa3:'Banyule',sa4:'Melbourne - North East',p:774,inSDA:605,seek:169,sup:97,sup13:55,pts13:73,st:'vic'},
-  {sa3:'Barwon - West',sa4:'Geelong',p:433,inSDA:339,seek:94,sup:3,sup13:3,pts13:3,st:'vic'},
-  {sa3:'Baw Baw',sa4:'Latrobe - Gippsland',p:299,inSDA:195,seek:104,sup:27,sup13:20,pts13:37,st:'vic'},
-  {sa3:'Bayside',sa4:'Melbourne - Inner South',p:483,inSDA:384,seek:99,sup:45,sup13:26,pts13:35,st:'vic'},
-  {sa3:'Bendigo',sa4:'Bendigo',p:211,inSDA:137,seek:74,sup:70,sup13:53,pts13:85,st:'vic'},
-  {sa3:'Boroondara',sa4:'Melbourne - Inner East',p:438,inSDA:350,seek:88,sup:52,sup13:19,pts13:20,st:'vic'},
-  {sa3:'Brimbank',sa4:'Melbourne - West',p:800,inSDA:581,seek:219,sup:105,sup13:80,pts13:124,st:'vic'},
-  {sa3:'Brunswick - Coburg',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:56,sup13:49,pts13:70,st:'vic'},
-  {sa3:'Campaspe',sa4:'Shepparton',p:193,inSDA:121,seek:72,sup:23,sup13:14,pts13:20,st:'vic'},
-  {sa3:'Cardinia',sa4:'Melbourne - South East',p:927,inSDA:655,seek:272,sup:50,sup13:44,pts13:85,st:'vic'},
-  {sa3:'Casey - North',sa4:'Melbourne - South East',p:927,inSDA:655,seek:272,sup:49,sup13:41,pts13:55,st:'vic'},
-  {sa3:'Casey - South',sa4:'Melbourne - South East',p:927,inSDA:655,seek:272,sup:216,sup13:206,pts13:450,st:'vic'},
-  {sa3:'Colac - Corangamite',sa4:'Warrnambool and South West',p:249,inSDA:189,seek:60,sup:36,sup13:19,pts13:37,st:'vic'},
-  {sa3:'Creswick - Daylesford - Ballan',sa4:'Ballarat',p:332,inSDA:276,seek:56,sup:10,sup13:10,pts13:10,st:'vic'},
-  {sa3:'Dandenong',sa4:'Melbourne - South East',p:927,inSDA:655,seek:272,sup:106,sup13:78,pts13:108,st:'vic'},
-  {sa3:'Darebin - North',sa4:'Melbourne - North East',p:774,inSDA:605,seek:169,sup:83,sup13:57,pts13:96,st:'vic'},
-  {sa3:'Darebin - South',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:41,sup13:30,pts13:43,st:'vic'},
-  {sa3:'Essendon',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:40,sup13:37,pts13:47,st:'vic'},
-  {sa3:'Frankston',sa4:'Mornington Peninsula',p:369,inSDA:263,seek:106,sup:95,sup13:78,pts13:124,st:'vic'},
-  {sa3:'Geelong',sa4:'Geelong',p:433,inSDA:339,seek:94,sup:223,sup13:188,pts13:314,st:'vic'},
-  {sa3:'Gippsland - East',sa4:'Latrobe - Gippsland',p:299,inSDA:195,seek:104,sup:10,sup13:5,pts13:5,st:'vic'},
-  {sa3:'Gippsland - South West',sa4:'Latrobe - Gippsland',p:299,inSDA:195,seek:104,sup:9,sup13:5,pts13:8,st:'vic'},
-  {sa3:'Glen Eira',sa4:'Melbourne - Inner South',p:483,inSDA:384,seek:99,sup:79,sup13:60,pts13:82,st:'vic'},
-  {sa3:'Glenelg - Southern Grampians',sa4:'Warrnambool and South West',p:249,inSDA:189,seek:60,sup:15,sup13:8,pts13:19,st:'vic'},
-  {sa3:'Grampians',sa4:'North West',p:280,inSDA:236,seek:44,sup:55,sup13:22,pts13:44,st:'vic'},
-  {sa3:'Heathcote - Castlemaine - Kyneton',sa4:'Bendigo',p:211,inSDA:137,seek:74,sup:10,sup13:6,pts13:8,st:'vic'},
-  {sa3:'Hobsons Bay',sa4:'Melbourne - West',p:800,inSDA:581,seek:219,sup:100,sup13:85,pts13:96,st:'vic'},
-  {sa3:'Keilor',sa4:'Melbourne - North West',p:331,inSDA:209,seek:122,sup:12,sup13:8,pts13:18,st:'vic'},
-  {sa3:'Kingston',sa4:'Melbourne - Inner South',p:483,inSDA:384,seek:99,sup:87,sup13:58,pts13:107,st:'vic'},
-  {sa3:'Knox',sa4:'Melbourne - Outer East',p:661,inSDA:473,seek:188,sup:54,sup13:33,pts13:68,st:'vic'},
-  {sa3:'Latrobe Valley',sa4:'Latrobe - Gippsland',p:299,inSDA:195,seek:104,sup:73,sup13:62,pts13:91,st:'vic'},
-  {sa3:'Loddon - Elmore',sa4:'Bendigo',p:211,inSDA:137,seek:74,sup:0,sup13:0,pts13:0,st:'vic'},
-  {sa3:'Macedon Ranges',sa4:'Melbourne - North West',p:331,inSDA:209,seek:122,sup:2,sup13:2,pts13:3,st:'vic'},
-  {sa3:'Manningham - East',sa4:'Melbourne - Outer East',p:661,inSDA:473,seek:188,sup:0,sup13:0,pts13:0,st:'vic'},
-  {sa3:'Manningham - West',sa4:'Melbourne - Inner East',p:438,inSDA:350,seek:88,sup:19,sup13:7,pts13:7,st:'vic'},
-  {sa3:'Maribyrnong',sa4:'Melbourne - West',p:800,inSDA:581,seek:219,sup:51,sup13:46,pts13:46,st:'vic'},
-  {sa3:'Maroondah',sa4:'Melbourne - Outer East',p:661,inSDA:473,seek:188,sup:64,sup13:31,pts13:54,st:'vic'},
-  {sa3:'Maryborough - Pyrenees',sa4:'Ballarat',p:332,inSDA:276,seek:56,sup:8,sup13:7,pts13:10,st:'vic'},
-  {sa3:'Melbourne City',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:64,sup13:64,pts13:66,st:'vic'},
-  {sa3:'Melton - Bacchus Marsh',sa4:'Melbourne - West',p:800,inSDA:581,seek:219,sup:237,sup13:226,pts13:501,st:'vic'},
-  {sa3:'Mildura',sa4:'North West',p:280,inSDA:236,seek:44,sup:65,sup13:57,pts13:107,st:'vic'},
-  {sa3:'Moira',sa4:'Shepparton',p:193,inSDA:121,seek:72,sup:2,sup13:0,pts13:0,st:'vic'},
-  {sa3:'Monash',sa4:'Melbourne - South East',p:927,inSDA:655,seek:272,sup:67,sup13:29,pts13:50,st:'vic'},
-  {sa3:'Moreland - North',sa4:'Melbourne - North West',p:331,inSDA:209,seek:122,sup:35,sup13:15,pts13:34,st:'vic'},
-  {sa3:'Mornington Peninsula',sa4:'Mornington Peninsula',p:369,inSDA:263,seek:106,sup:57,sup13:27,pts13:56,st:'vic'},
-  {sa3:'Murray River - Swan Hill',sa4:'North West',p:280,inSDA:236,seek:44,sup:8,sup13:2,pts13:3,st:'vic'},
-  {sa3:'Nillumbik - Kinglake',sa4:'Melbourne - North East',p:774,inSDA:605,seek:169,sup:9,sup13:5,pts13:12,st:'vic'},
-  {sa3:'Port Phillip',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:34,sup13:30,pts13:30,st:'vic'},
-  {sa3:'Shepparton',sa4:'Shepparton',p:193,inSDA:121,seek:72,sup:41,sup13:28,pts13:46,st:'vic'},
-  {sa3:'Stonnington - East',sa4:'Melbourne - Inner South',p:483,inSDA:384,seek:99,sup:24,sup13:22,pts13:26,st:'vic'},
-  {sa3:'Stonnington - West',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:12,sup13:11,pts13:17,st:'vic'},
-  {sa3:'Sunbury',sa4:'Melbourne - North West',p:331,inSDA:209,seek:122,sup:21,sup13:15,pts13:28,st:'vic'},
-  {sa3:'Surf Coast - Bellarine Peninsula',sa4:'Geelong',p:433,inSDA:339,seek:94,sup:54,sup13:52,pts13:106,st:'vic'},
-  {sa3:'Tullamarine - Broadmeadows',sa4:'Melbourne - North West',p:331,inSDA:209,seek:122,sup:68,sup13:62,pts13:128,st:'vic'},
-  {sa3:'Upper Goulburn Valley',sa4:'Hume',p:185,inSDA:129,seek:56,sup:12,sup13:10,pts13:18,st:'vic'},
-  {sa3:'Wangaratta - Benalla',sa4:'Hume',p:185,inSDA:129,seek:56,sup:25,sup13:15,pts13:34,st:'vic'},
-  {sa3:'Warrnambool',sa4:'Warrnambool and South West',p:249,inSDA:189,seek:60,sup:33,sup13:22,pts13:34,st:'vic'},
-  {sa3:'Wellington',sa4:'Latrobe - Gippsland',p:299,inSDA:195,seek:104,sup:19,sup13:13,pts13:22,st:'vic'},
-  {sa3:'Whitehorse - East',sa4:'Melbourne - Outer East',p:661,inSDA:473,seek:188,sup:30,sup13:11,pts13:22,st:'vic'},
-  {sa3:'Whitehorse - West',sa4:'Melbourne - Inner East',p:438,inSDA:350,seek:88,sup:68,sup13:36,pts13:51,st:'vic'},
-  {sa3:'Whittlesea - Wallan',sa4:'Melbourne - North East',p:774,inSDA:605,seek:169,sup:187,sup13:157,pts13:336,st:'vic'},
-  {sa3:'Wodonga - Alpine',sa4:'Hume',p:185,inSDA:129,seek:56,sup:30,sup13:22,pts13:42,st:'vic'},
-  {sa3:'Wyndham',sa4:'Melbourne - West',p:800,inSDA:581,seek:219,sup:219,sup13:209,pts13:453,st:'vic'},
-  {sa3:'Yarra',sa4:'Melbourne - Inner',p:375,inSDA:251,seek:124,sup:19,sup13:18,pts13:18,st:'vic'},
-  {sa3:'Yarra Ranges',sa4:'Melbourne - Outer East',p:661,inSDA:473,seek:188,sup:54,sup13:29,pts13:55,st:'vic'},
-];
-var PARAMS={
+  // Source: NDIS Quarterly Performance Report Q4 2025
+  // Tables P.15 (Enrolled SDA Dwellings by SA3 & Max Residents) +
+  //        P.17 (Participants with identified SDA needs by SA3)
+  // As at 31 December 2025. Refresh from NDIS quarterly publication.
+  //
+  // Field meanings:
+  //   inUse  = participants with SDA in use (i.e. already housed in SDA)
+  //   elig   = participants SDA eligible, not yet using SDA
+  //   total  = inUse + elig (all participants with SDA need in this SA3)
+  //   r1..r6 = count of enrolled dwellings by max-resident category
+  //   cap13  = preferred 1-3BR capacity = r1*1 + r2*2 + r3*3
+  //   Undersupply = total - cap13  (positive = gap to fill = good for investor)
+  {sa3:'Albury',sa4:'Murray',st:'nsw',inUse:108,elig:50,total:158,r1:44,r2:12,r3:9,r4:6,r5:14,r6:1,cap13:95},
+  {sa3:'Armidale',sa4:'New England and North West',st:'nsw',inUse:32,elig:6,total:38,r1:4,r2:11,r3:3,r4:0,r5:5,r6:0,cap13:35},
+  {sa3:'Auburn',sa4:'Sydney - Parramatta',st:'nsw',inUse:51,elig:39,total:90,r1:65,r2:0,r3:0,r4:0,r5:3,r6:0,cap13:65},
+  {sa3:'Bankstown',sa4:'Sydney - Inner South West',st:'nsw',inUse:82,elig:78,total:160,r1:32,r2:7,r3:5,r4:4,r5:12,r6:0,cap13:61},
+  {sa3:'Bathurst',sa4:'Central West',st:'nsw',inUse:53,elig:29,total:82,r1:5,r2:4,r3:2,r4:5,r5:8,r6:1,cap13:19},
+  {sa3:'Baulkham Hills',sa4:'Sydney - Baulkham Hills and Hawkesbury',st:'nsw',inUse:165,elig:27,total:192,r1:22,r2:1,r3:1,r4:11,r5:23,r6:4,cap13:27},
+  {sa3:'Blacktown',sa4:'Sydney - Blacktown',st:'nsw',inUse:146,elig:61,total:207,r1:55,r2:2,r3:10,r4:10,r5:16,r6:0,cap13:89},
+  {sa3:'Blacktown - North',sa4:'Sydney - Blacktown',st:'nsw',inUse:112,elig:52,total:164,r1:25,r2:7,r3:3,r4:6,r5:18,r6:4,cap13:48},
+  {sa3:'Blue Mountains',sa4:'Sydney - Outer West and Blue Mountains',st:'nsw',inUse:69,elig:15,total:84,r1:8,r2:5,r3:8,r4:7,r5:6,r6:3,cap13:42},
+  {sa3:'Blue Mountains - South',sa4:'Sydney - Outer West and Blue Mountains',st:'nsw',inUse:0,elig:0,total:0,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Botany',sa4:'Sydney - City and Inner South',st:'nsw',inUse:42,elig:26,total:68,r1:3,r2:6,r3:1,r4:5,r5:4,r6:1,cap13:18},
+  {sa3:'Bourke - Cobar - Coonamble',sa4:'Far West and Orana',st:'nsw',inUse:6,elig:3,total:9,r1:0,r2:0,r3:0,r4:0,r5:0,r6:1,cap13:0},
+  {sa3:'Bringelly - Green Valley',sa4:'Sydney - South West',st:'nsw',inUse:44,elig:70,total:114,r1:6,r2:7,r3:6,r4:8,r5:2,r6:1,cap13:38},
+  {sa3:'Broken Hill and Far West',sa4:'Far West and Orana',st:'nsw',inUse:11,elig:12,total:23,r1:0,r2:0,r3:1,r4:0,r5:2,r6:0,cap13:3},
+  {sa3:'Camden',sa4:'Sydney - Outer South West',st:'nsw',inUse:37,elig:31,total:68,r1:4,r2:2,r3:2,r4:3,r5:4,r6:0,cap13:14},
+  {sa3:'Campbelltown (NSW)',sa4:'Sydney - Outer South West',st:'nsw',inUse:110,elig:89,total:199,r1:49,r2:14,r3:9,r4:14,r5:9,r6:0,cap13:104},
+  {sa3:'Canada Bay',sa4:'Sydney - Inner West',st:'nsw',inUse:34,elig:19,total:53,r1:18,r2:0,r3:2,r4:2,r5:3,r6:0,cap13:24},
+  {sa3:'Canterbury',sa4:'Sydney - Inner South West',st:'nsw',inUse:56,elig:49,total:105,r1:16,r2:1,r3:2,r4:4,r5:12,r6:0,cap13:24},
+  {sa3:'Carlingford',sa4:'Sydney - Parramatta',st:'nsw',inUse:42,elig:23,total:65,r1:12,r2:2,r3:3,r4:3,r5:6,r6:0,cap13:25},
+  {sa3:'Chatswood - Lane Cove',sa4:'Sydney - North Sydney and Hornsby',st:'nsw',inUse:25,elig:15,total:40,r1:16,r2:3,r3:1,r4:1,r5:0,r6:0,cap13:25},
+  {sa3:'Clarence Valley',sa4:'Coffs Harbour - Grafton',st:'nsw',inUse:34,elig:21,total:55,r1:0,r2:2,r3:3,r4:1,r5:2,r6:3,cap13:13},
+  {sa3:'Coffs Harbour',sa4:'Coffs Harbour - Grafton',st:'nsw',inUse:44,elig:50,total:94,r1:6,r2:1,r3:3,r4:2,r5:6,r6:2,cap13:17},
+  {sa3:'Cronulla - Miranda - Caringbah',sa4:'Sydney - Sutherland',st:'nsw',inUse:123,elig:36,total:159,r1:28,r2:13,r3:7,r4:5,r5:16,r6:4,cap13:75},
+  {sa3:'Dapto - Port Kembla',sa4:'Illawarra',st:'nsw',inUse:77,elig:53,total:130,r1:5,r2:2,r3:12,r4:4,r5:7,r6:0,cap13:45},
+  {sa3:'Dubbo',sa4:'Far West and Orana',st:'nsw',inUse:98,elig:49,total:147,r1:32,r2:14,r3:5,r4:11,r5:8,r6:3,cap13:75},
+  {sa3:'Dural - Wisemans Ferry',sa4:'Sydney - Baulkham Hills and Hawkesbury',st:'nsw',inUse:29,elig:12,total:41,r1:0,r2:1,r3:1,r4:3,r5:1,r6:2,cap13:5},
+  {sa3:'Eastern Suburbs - North',sa4:'Sydney - Eastern Suburbs',st:'nsw',inUse:3,elig:14,total:17,r1:0,r2:0,r3:0,r4:2,r5:0,r6:0,cap13:0},
+  {sa3:'Eastern Suburbs - South',sa4:'Sydney - Eastern Suburbs',st:'nsw',inUse:41,elig:36,total:77,r1:3,r2:0,r3:1,r4:2,r5:8,r6:1,cap13:6},
+  {sa3:'Fairfield',sa4:'Sydney - South West',st:'nsw',inUse:65,elig:89,total:154,r1:39,r2:13,r3:7,r4:6,r5:7,r6:0,cap13:86},
+  {sa3:'Gosford',sa4:'Central Coast',st:'nsw',inUse:129,elig:69,total:198,r1:70,r2:14,r3:3,r4:3,r5:12,r6:1,cap13:107},
+  {sa3:'Goulburn - Mulwaree',sa4:'Capital Region',st:'nsw',inUse:49,elig:14,total:63,r1:5,r2:2,r3:0,r4:2,r5:9,r6:1,cap13:9},
+  {sa3:'Great Lakes',sa4:'Mid North Coast',st:'nsw',inUse:12,elig:16,total:28,r1:1,r2:3,r3:2,r4:0,r5:2,r6:0,cap13:13},
+  {sa3:'Griffith - Murrumbidgee (West)',sa4:'Riverina',st:'nsw',inUse:24,elig:15,total:39,r1:4,r2:1,r3:3,r4:3,r5:3,r6:0,cap13:15},
+  {sa3:'Hawkesbury',sa4:'Sydney - Baulkham Hills and Hawkesbury',st:'nsw',inUse:5,elig:2,total:7,r1:0,r2:2,r3:0,r4:3,r5:1,r6:0,cap13:4},
+  {sa3:'Hornsby',sa4:'Sydney - North Sydney and Hornsby',st:'nsw',inUse:85,elig:33,total:118,r1:31,r2:4,r3:2,r4:3,r5:10,r6:1,cap13:45},
+  {sa3:'Hurstville',sa4:'Sydney - Inner South West',st:'nsw',inUse:56,elig:33,total:89,r1:2,r2:4,r3:2,r4:2,r5:12,r6:1,cap13:16},
+  {sa3:'Illawarra Catchment Reserve',sa4:'Illawarra',st:'nsw',inUse:0,elig:0,total:0,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Inverell - Tenterfield',sa4:'New England and North West',st:'nsw',inUse:2,elig:18,total:20,r1:3,r2:1,r3:0,r4:0,r5:0,r6:0,cap13:5},
+  {sa3:'Kempsey - Nambucca',sa4:'Mid North Coast',st:'nsw',inUse:17,elig:31,total:48,r1:2,r2:5,r3:0,r4:0,r5:2,r6:1,cap13:12},
+  {sa3:'Kiama - Shellharbour',sa4:'Illawarra',st:'nsw',inUse:70,elig:40,total:110,r1:8,r2:3,r3:6,r4:5,r5:12,r6:0,cap13:32},
+  {sa3:'Kogarah - Rockdale',sa4:'Sydney - Inner South West',st:'nsw',inUse:72,elig:42,total:114,r1:50,r2:1,r3:1,r4:2,r5:7,r6:1,cap13:55},
+  {sa3:'Ku-ring-gai',sa4:'Sydney - North Sydney and Hornsby',st:'nsw',inUse:15,elig:46,total:61,r1:1,r2:1,r3:1,r4:2,r5:2,r6:0,cap13:6},
+  {sa3:'Lachlan Valley',sa4:'Central West',st:'nsw',inUse:17,elig:18,total:35,r1:1,r2:2,r3:2,r4:1,r5:2,r6:0,cap13:11},
+  {sa3:'Lake Macquarie - East',sa4:'Newcastle and Lake Macquarie',st:'nsw',inUse:113,elig:44,total:157,r1:33,r2:15,r3:6,r4:6,r5:10,r6:1,cap13:81},
+  {sa3:'Lake Macquarie - West',sa4:'Newcastle and Lake Macquarie',st:'nsw',inUse:88,elig:48,total:136,r1:10,r2:12,r3:15,r4:3,r5:8,r6:0,cap13:79},
+  {sa3:'Leichhardt',sa4:'Sydney - Inner West',st:'nsw',inUse:1,elig:12,total:13,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Lithgow - Mudgee',sa4:'Central West',st:'nsw',inUse:19,elig:16,total:35,r1:15,r2:2,r3:3,r4:0,r5:4,r6:0,cap13:28},
+  {sa3:'Liverpool',sa4:'Sydney - South West',st:'nsw',inUse:76,elig:53,total:129,r1:74,r2:14,r3:1,r4:3,r5:12,r6:0,cap13:105},
+  {sa3:'Lord Howe Island',sa4:'Mid North Coast',st:'nsw',inUse:0,elig:0,total:0,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Lower Hunter',sa4:'Hunter Valley exc Newcastle',st:'nsw',inUse:41,elig:29,total:70,r1:11,r2:9,r3:6,r4:4,r5:2,r6:0,cap13:47},
+  {sa3:'Lower Murray',sa4:'Murray',st:'nsw',inUse:0,elig:3,total:3,r1:0,r2:1,r3:0,r4:0,r5:0,r6:0,cap13:2},
+  {sa3:'Maitland',sa4:'Hunter Valley exc Newcastle',st:'nsw',inUse:74,elig:62,total:136,r1:5,r2:10,r3:7,r4:2,r5:12,r6:1,cap13:46},
+  {sa3:'Manly',sa4:'Sydney - Northern Beaches',st:'nsw',inUse:2,elig:4,total:6,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Marrickville - Sydenham - Petersham',sa4:'Sydney - City and Inner South',st:'nsw',inUse:5,elig:19,total:24,r1:0,r2:0,r3:0,r4:0,r5:1,r6:1,cap13:0},
+  {sa3:'Merrylands - Guildford',sa4:'Sydney - Parramatta',st:'nsw',inUse:158,elig:83,total:241,r1:110,r2:13,r3:4,r4:10,r5:15,r6:0,cap13:148},
+  {sa3:'Moree - Narrabri',sa4:'New England and North West',st:'nsw',inUse:10,elig:6,total:16,r1:0,r2:0,r3:1,r4:0,r5:2,r6:0,cap13:3},
+  {sa3:'Mount Druitt',sa4:'Sydney - Blacktown',st:'nsw',inUse:38,elig:53,total:91,r1:3,r2:2,r3:5,r4:6,r5:8,r6:0,cap13:22},
+  {sa3:'Newcastle',sa4:'Newcastle and Lake Macquarie',st:'nsw',inUse:200,elig:79,total:279,r1:58,r2:18,r3:11,r4:9,r5:20,r6:0,cap13:127},
+  {sa3:'North Sydney - Mosman',sa4:'Sydney - North Sydney and Hornsby',st:'nsw',inUse:0,elig:14,total:14,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Orange',sa4:'Central West',st:'nsw',inUse:98,elig:39,total:137,r1:20,r2:3,r3:2,r4:8,r5:17,r6:2,cap13:32},
+  {sa3:'Parramatta',sa4:'Sydney - Parramatta',st:'nsw',inUse:110,elig:48,total:158,r1:70,r2:16,r3:4,r4:3,r5:15,r6:0,cap13:114},
+  {sa3:'Pennant Hills - Epping',sa4:'Sydney - Ryde',st:'nsw',inUse:36,elig:9,total:45,r1:9,r2:3,r3:0,r4:1,r5:5,r6:0,cap13:15},
+  {sa3:'Penrith',sa4:'Sydney - Outer West and Blue Mountains',st:'nsw',inUse:228,elig:73,total:301,r1:132,r2:27,r3:29,r4:11,r5:19,r6:0,cap13:273},
+  {sa3:'Pittwater',sa4:'Sydney - Northern Beaches',st:'nsw',inUse:24,elig:10,total:34,r1:1,r2:0,r3:0,r4:2,r5:5,r6:0,cap13:1},
+  {sa3:'Port Macquarie',sa4:'Mid North Coast',st:'nsw',inUse:59,elig:35,total:94,r1:13,r2:5,r3:7,r4:0,r5:7,r6:1,cap13:44},
+  {sa3:'Port Stephens',sa4:'Hunter Valley exc Newcastle',st:'nsw',inUse:32,elig:19,total:51,r1:3,r2:1,r3:3,r4:4,r5:3,r6:0,cap13:14},
+  {sa3:'Queanbeyan',sa4:'Capital Region',st:'nsw',inUse:16,elig:12,total:28,r1:0,r2:1,r3:1,r4:2,r5:4,r6:0,cap13:5},
+  {sa3:'Richmond - Windsor',sa4:'Sydney - Outer West and Blue Mountains',st:'nsw',inUse:29,elig:18,total:47,r1:1,r2:6,r3:4,r4:5,r5:1,r6:0,cap13:25},
+  {sa3:'Richmond Valley - Coastal',sa4:'Richmond - Tweed',st:'nsw',inUse:65,elig:39,total:104,r1:15,r2:2,r3:7,r4:2,r5:7,r6:0,cap13:40},
+  {sa3:'Richmond Valley - Hinterland',sa4:'Richmond - Tweed',st:'nsw',inUse:57,elig:43,total:100,r1:8,r2:3,r3:3,r4:2,r5:9,r6:0,cap13:23},
+  {sa3:'Rouse Hill - McGraths Hill',sa4:'Sydney - Baulkham Hills and Hawkesbury',st:'nsw',inUse:12,elig:7,total:19,r1:11,r2:0,r3:1,r4:0,r5:2,r6:0,cap13:14},
+  {sa3:'Ryde - Hunters Hill',sa4:'Sydney - Ryde',st:'nsw',inUse:230,elig:59,total:289,r1:68,r2:28,r3:4,r4:13,r5:19,r6:1,cap13:136},
+  {sa3:'Shoalhaven',sa4:'Southern Highlands and Shoalhaven',st:'nsw',inUse:78,elig:55,total:133,r1:5,r2:13,r3:8,r4:3,r5:8,r6:0,cap13:55},
+  {sa3:'Snowy Mountains',sa4:'Capital Region',st:'nsw',inUse:1,elig:3,total:4,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'South Coast',sa4:'Capital Region',st:'nsw',inUse:36,elig:23,total:59,r1:15,r2:2,r3:1,r4:2,r5:1,r6:0,cap13:22},
+  {sa3:'Southern Highlands',sa4:'Southern Highlands and Shoalhaven',st:'nsw',inUse:10,elig:24,total:34,r1:0,r2:1,r3:1,r4:0,r5:3,r6:0,cap13:5},
+  {sa3:'St Marys',sa4:'Sydney - Outer West and Blue Mountains',st:'nsw',inUse:56,elig:24,total:80,r1:33,r2:3,r3:2,r4:2,r5:5,r6:0,cap13:45},
+  {sa3:'Strathfield - Burwood - Ashfield',sa4:'Sydney - Inner West',st:'nsw',inUse:58,elig:53,total:111,r1:38,r2:1,r3:3,r4:2,r5:7,r6:1,cap13:49},
+  {sa3:'Sutherland - Menai - Heathcote',sa4:'Sydney - Sutherland',st:'nsw',inUse:69,elig:35,total:104,r1:30,r2:4,r3:1,r4:4,r5:7,r6:0,cap13:41},
+  {sa3:'Sydney Inner City',sa4:'Sydney - City and Inner South',st:'nsw',inUse:22,elig:33,total:55,r1:20,r2:8,r3:0,r4:0,r5:4,r6:1,cap13:36},
+  {sa3:'Tamworth - Gunnedah',sa4:'New England and North West',st:'nsw',inUse:61,elig:33,total:94,r1:11,r2:6,r3:2,r4:2,r5:13,r6:2,cap13:29},
+  {sa3:'Taree - Gloucester',sa4:'Mid North Coast',st:'nsw',inUse:52,elig:26,total:78,r1:7,r2:8,r3:9,r4:1,r5:5,r6:0,cap13:50},
+  {sa3:'Tumut - Tumbarumba',sa4:'Riverina',st:'nsw',inUse:6,elig:6,total:12,r1:0,r2:0,r3:0,r4:2,r5:0,r6:0,cap13:0},
+  {sa3:'Tweed Valley',sa4:'Richmond - Tweed',st:'nsw',inUse:35,elig:48,total:83,r1:7,r2:3,r3:1,r4:2,r5:3,r6:1,cap13:16},
+  {sa3:'Upper Hunter',sa4:'Hunter Valley exc Newcastle',st:'nsw',inUse:3,elig:3,total:6,r1:0,r2:0,r3:0,r4:1,r5:0,r6:0,cap13:0},
+  {sa3:'Upper Murray exc. Albury',sa4:'Murray',st:'nsw',inUse:23,elig:9,total:32,r1:4,r2:1,r3:1,r4:1,r5:2,r6:0,cap13:9},
+  {sa3:'Wagga Wagga',sa4:'Riverina',st:'nsw',inUse:80,elig:48,total:128,r1:16,r2:12,r3:7,r4:6,r5:7,r6:1,cap13:61},
+  {sa3:'Warringah',sa4:'Sydney - Northern Beaches',st:'nsw',inUse:157,elig:62,total:219,r1:21,r2:10,r3:6,r4:10,r5:23,r6:1,cap13:59},
+  {sa3:'Wollondilly',sa4:'Sydney - Outer South West',st:'nsw',inUse:8,elig:9,total:17,r1:5,r2:0,r3:0,r4:1,r5:1,r6:0,cap13:5},
+  {sa3:'Wollongong',sa4:'Illawarra',st:'nsw',inUse:81,elig:48,total:129,r1:45,r2:0,r3:1,r4:1,r5:9,r6:1,cap13:48},
+  {sa3:'Wyong',sa4:'Central Coast',st:'nsw',inUse:149,elig:89,total:238,r1:19,r2:11,r3:14,r4:13,r5:25,r6:1,cap13:83},
+  {sa3:'Young - Yass',sa4:'Capital Region',st:'nsw',inUse:14,elig:14,total:28,r1:9,r2:0,r3:0,r4:2,r5:1,r6:0,cap13:9},
+  {sa3:'Ballarat',sa4:'Ballarat',st:'vic',inUse:264,elig:43,total:307,r1:96,r2:83,r3:30,r4:5,r5:20,r6:2,cap13:352},
+  {sa3:'Banyule',sa4:'Melbourne - North East',st:'vic',inUse:198,elig:46,total:244,r1:43,r2:6,r3:6,r4:12,r5:27,r6:3,cap13:73},
+  {sa3:'Barwon - West',sa4:'Geelong',st:'vic',inUse:2,elig:3,total:5,r1:3,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:3},
+  {sa3:'Baw Baw',sa4:'Latrobe - Gippsland',st:'vic',inUse:43,elig:15,total:58,r1:8,r2:7,r3:5,r4:0,r5:4,r6:3,cap13:37},
+  {sa3:'Bayside',sa4:'Melbourne - Inner South',st:'vic',inUse:88,elig:32,total:120,r1:19,r2:5,r3:2,r4:1,r5:15,r6:3,cap13:35},
+  {sa3:'Bendigo',sa4:'Bendigo',st:'vic',inUse:116,elig:56,total:172,r1:33,r2:8,r3:12,r4:7,r5:10,r6:0,cap13:85},
+  {sa3:'Boroondara',sa4:'Melbourne - Inner East',st:'vic',inUse:131,elig:30,total:161,r1:18,r2:1,r3:0,r4:3,r5:26,r6:4,cap13:20},
+  {sa3:'Brimbank',sa4:'Melbourne - West',st:'vic',inUse:131,elig:57,total:188,r1:49,r2:18,r3:13,r4:6,r5:14,r6:5,cap13:124},
+  {sa3:'Brunswick - Coburg',sa4:'Melbourne - Inner',st:'vic',inUse:54,elig:26,total:80,r1:34,r2:9,r3:6,r4:2,r5:3,r6:2,cap13:70},
+  {sa3:'Campaspe',sa4:'Shepparton',st:'vic',inUse:49,elig:16,total:65,r1:10,r2:2,r3:2,r4:3,r5:5,r6:1,cap13:20},
+  {sa3:'Cardinia',sa4:'Melbourne - South East',st:'vic',inUse:52,elig:24,total:76,r1:14,r2:19,r3:11,r4:1,r5:5,r6:0,cap13:85},
+  {sa3:'Casey - North',sa4:'Melbourne - South East',st:'vic',inUse:59,elig:39,total:98,r1:32,r2:4,r3:5,r4:2,r5:6,r6:0,cap13:55},
+  {sa3:'Casey - South',sa4:'Melbourne - South East',st:'vic',inUse:206,elig:104,total:310,r1:24,r2:120,r3:62,r4:2,r5:8,r6:0,cap13:450},
+  {sa3:'Colac - Corangamite',sa4:'Warrnambool and South West',st:'vic',inUse:87,elig:17,total:104,r1:6,r2:8,r3:5,r4:2,r5:13,r6:2,cap13:37},
+  {sa3:'Creswick - Daylesford - Ballan',sa4:'Ballarat',st:'vic',inUse:5,elig:5,total:10,r1:10,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:10},
+  {sa3:'Dandenong',sa4:'Melbourne - South East',st:'vic',inUse:163,elig:53,total:216,r1:59,r2:8,r3:11,r4:10,r5:16,r6:2,cap13:108},
+  {sa3:'Darebin - North',sa4:'Melbourne - North East',st:'vic',inUse:144,elig:35,total:179,r1:29,r2:17,r3:11,r4:2,r5:23,r6:1,cap13:96},
+  {sa3:'Darebin - South',sa4:'Melbourne - Inner',st:'vic',inUse:53,elig:13,total:66,r1:17,r2:13,r3:0,r4:1,r5:8,r6:2,cap13:43},
+  {sa3:'Essendon',sa4:'Melbourne - Inner',st:'vic',inUse:38,elig:24,total:62,r1:29,r2:6,r3:2,r4:0,r5:3,r6:0,cap13:47},
+  {sa3:'Frankston',sa4:'Mornington Peninsula',st:'vic',inUse:118,elig:59,total:177,r1:49,r2:12,r3:17,r4:5,r5:12,r6:0,cap13:124},
+  {sa3:'Geelong',sa4:'Geelong',st:'vic',inUse:286,elig:81,total:367,r1:90,r2:70,r3:28,r4:6,r5:26,r6:3,cap13:314},
+  {sa3:'Gippsland - East',sa4:'Latrobe - Gippsland',st:'vic',inUse:22,elig:18,total:40,r1:5,r2:0,r3:0,r4:1,r5:3,r6:1,cap13:5},
+  {sa3:'Gippsland - South West',sa4:'Latrobe - Gippsland',st:'vic',inUse:20,elig:11,total:31,r1:2,r2:3,r3:0,r4:0,r5:3,r6:1,cap13:8},
+  {sa3:'Glen Eira',sa4:'Melbourne - Inner South',st:'vic',inUse:139,elig:25,total:164,r1:47,r2:4,r3:9,r4:1,r5:13,r6:5,cap13:82},
+  {sa3:'Glenelg - Southern Grampians',sa4:'Warrnambool and South West',st:'vic',inUse:43,elig:14,total:57,r1:2,r2:1,r3:5,r4:1,r5:6,r6:0,cap13:19},
+  {sa3:'Grampians',sa4:'North West',st:'vic',inUse:151,elig:21,total:172,r1:8,r2:6,r3:8,r4:4,r5:23,r6:6,cap13:44},
+  {sa3:'Heathcote - Castlemaine - Kyneton',sa4:'Bendigo',st:'vic',inUse:21,elig:17,total:38,r1:5,r2:0,r3:1,r4:0,r5:4,r6:0,cap13:8},
+  {sa3:'Hobsons Bay',sa4:'Melbourne - West',st:'vic',inUse:79,elig:16,total:95,r1:77,r2:5,r3:3,r4:3,r5:8,r6:4,cap13:96},
+  {sa3:'Keilor',sa4:'Melbourne - North West',st:'vic',inUse:33,elig:17,total:50,r1:2,r2:2,r3:4,r4:0,r5:4,r6:0,cap13:18},
+  {sa3:'Kingston',sa4:'Melbourne - Inner South',st:'vic',inUse:140,elig:33,total:173,r1:22,r2:23,r3:13,r4:6,r5:22,r6:1,cap13:107},
+  {sa3:'Knox',sa4:'Melbourne - Outer East',st:'vic',inUse:103,elig:63,total:166,r1:9,r2:13,r3:11,r4:7,r5:14,r6:0,cap13:68},
+  {sa3:'Latrobe Valley',sa4:'Latrobe - Gippsland',st:'vic',inUse:73,elig:42,total:115,r1:40,r2:15,r3:7,r4:1,r5:9,r6:1,cap13:91},
+  {sa3:'Loddon - Elmore',sa4:'Bendigo',st:'vic',inUse:0,elig:1,total:1,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Macedon Ranges',sa4:'Melbourne - North West',st:'vic',inUse:1,elig:8,total:9,r1:1,r2:1,r3:0,r4:0,r5:0,r6:0,cap13:3},
+  {sa3:'Manningham - East',sa4:'Melbourne - Outer East',st:'vic',inUse:0,elig:3,total:3,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Manningham - West',sa4:'Melbourne - Inner East',st:'vic',inUse:47,elig:18,total:65,r1:7,r2:0,r3:0,r4:1,r5:11,r6:0,cap13:7},
+  {sa3:'Maribyrnong',sa4:'Melbourne - West',st:'vic',inUse:37,elig:28,total:65,r1:46,r2:0,r3:0,r4:1,r5:4,r6:0,cap13:46},
+  {sa3:'Maroondah',sa4:'Melbourne - Outer East',st:'vic',inUse:150,elig:61,total:211,r1:17,r2:5,r3:9,r4:7,r5:25,r6:1,cap13:54},
+  {sa3:'Maryborough - Pyrenees',sa4:'Ballarat',st:'vic',inUse:7,elig:8,total:15,r1:5,r2:1,r3:1,r4:1,r5:0,r6:0,cap13:10},
+  {sa3:'Melbourne City',sa4:'Melbourne - Inner',st:'vic',inUse:48,elig:25,total:73,r1:63,r2:0,r3:1,r4:0,r5:0,r6:0,cap13:66},
+  {sa3:'Melton - Bacchus Marsh',sa4:'Melbourne - West',st:'vic',inUse:165,elig:51,total:216,r1:10,r2:157,r3:59,r4:2,r5:9,r6:0,cap13:501},
+  {sa3:'Mildura',sa4:'North West',st:'vic',inUse:57,elig:18,total:75,r1:17,r2:30,r3:10,r4:5,r5:3,r6:0,cap13:107},
+  {sa3:'Moira',sa4:'Shepparton',st:'vic',inUse:7,elig:15,total:22,r1:0,r2:0,r3:0,r4:1,r5:1,r6:0,cap13:0},
+  {sa3:'Monash',sa4:'Melbourne - South East',st:'vic',inUse:175,elig:52,total:227,r1:15,r2:7,r3:7,r4:10,r5:25,r6:3,cap13:50},
+  {sa3:'Moreland - North',sa4:'Melbourne - North West',st:'vic',inUse:89,elig:23,total:112,r1:1,r2:9,r3:5,r4:3,r5:14,r6:3,cap13:34},
+  {sa3:'Mornington Peninsula',sa4:'Mornington Peninsula',st:'vic',inUse:145,elig:47,total:192,r1:9,r2:7,r3:11,r4:7,r5:19,r6:4,cap13:56},
+  {sa3:'Murray River - Swan Hill',sa4:'North West',st:'vic',inUse:28,elig:5,total:33,r1:1,r2:1,r3:0,r4:1,r5:4,r6:1,cap13:3},
+  {sa3:'Nillumbik - Kinglake',sa4:'Melbourne - North East',st:'vic',inUse:18,elig:11,total:29,r1:1,r2:1,r3:3,r4:0,r5:4,r6:0,cap13:12},
+  {sa3:'Port Phillip',sa4:'Melbourne - Inner',st:'vic',inUse:31,elig:16,total:47,r1:30,r2:0,r3:0,r4:2,r5:1,r6:1,cap13:30},
+  {sa3:'Shepparton',sa4:'Shepparton',st:'vic',inUse:65,elig:41,total:106,r1:18,r2:2,r3:8,r4:2,r5:9,r6:2,cap13:46},
+  {sa3:'Stonnington - East',sa4:'Melbourne - Inner South',st:'vic',inUse:17,elig:9,total:26,r1:20,r2:0,r3:2,r4:2,r5:0,r6:0,cap13:26},
+  {sa3:'Stonnington - West',sa4:'Melbourne - Inner',st:'vic',inUse:5,elig:8,total:13,r1:5,r2:6,r3:0,r4:0,r5:0,r6:1,cap13:17},
+  {sa3:'Sunbury',sa4:'Melbourne - North West',st:'vic',inUse:20,elig:10,total:30,r1:5,r2:7,r3:3,r4:1,r5:5,r6:0,cap13:28},
+  {sa3:'Surf Coast - Bellarine Peninsula',sa4:'Geelong',st:'vic',inUse:51,elig:10,total:61,r1:3,r2:44,r3:5,r4:1,r5:1,r6:0,cap13:106},
+  {sa3:'Tullamarine - Broadmeadows',sa4:'Melbourne - North West',st:'vic',inUse:66,elig:64,total:130,r1:10,r2:38,r3:14,r4:4,r5:2,r6:0,cap13:128},
+  {sa3:'Upper Goulburn Valley',sa4:'Hume',st:'vic',inUse:13,elig:14,total:27,r1:5,r2:2,r3:3,r4:0,r5:2,r6:0,cap13:18},
+  {sa3:'Wangaratta - Benalla',sa4:'Hume',st:'vic',inUse:61,elig:13,total:74,r1:1,r2:9,r3:5,r4:2,r5:8,r6:0,cap13:34},
+  {sa3:'Warrnambool',sa4:'Warrnambool and South West',st:'vic',inUse:59,elig:29,total:88,r1:14,r2:4,r3:4,r4:4,r5:7,r6:0,cap13:34},
+  {sa3:'Wellington',sa4:'Latrobe - Gippsland',st:'vic',inUse:37,elig:18,total:55,r1:6,r2:5,r3:2,r4:1,r5:4,r6:1,cap13:22},
+  {sa3:'Whitehorse - East',sa4:'Melbourne - Outer East',st:'vic',inUse:84,elig:22,total:106,r1:5,r2:1,r3:5,r4:2,r5:17,r6:0,cap13:22},
+  {sa3:'Whitehorse - West',sa4:'Melbourne - Inner East',st:'vic',inUse:172,elig:40,total:212,r1:27,r2:3,r3:6,r4:9,r5:18,r6:5,cap13:51},
+  {sa3:'Whittlesea - Wallan',sa4:'Melbourne - North East',st:'vic',inUse:245,elig:77,total:322,r1:22,r2:91,r3:44,r4:4,r5:26,r6:0,cap13:336},
+  {sa3:'Wodonga - Alpine',sa4:'Hume',st:'vic',inUse:55,elig:29,total:84,r1:4,r2:16,r3:2,r4:1,r5:6,r6:1,cap13:42},
+  {sa3:'Wyndham',sa4:'Melbourne - West',st:'vic',inUse:169,elig:67,total:236,r1:26,r2:122,r3:61,r4:2,r5:6,r6:2,cap13:453},
+  {sa3:'Yarra',sa4:'Melbourne - Inner',st:'vic',inUse:22,elig:12,total:34,r1:18,r2:0,r3:0,r4:0,r5:1,r6:0,cap13:18},
+  {sa3:'Yarra Ranges',sa4:'Melbourne - Outer East',st:'vic',inUse:136,elig:39,total:175,r1:13,r2:6,r3:10,r4:13,r5:10,r6:2,cap13:55},
+  {sa3:'Bald Hills - Everton Park',sa4:'Brisbane - North',st:'qld',inUse:22,elig:16,total:38,r1:1,r2:2,r3:6,r4:1,r5:1,r6:0,cap13:23},
+  {sa3:'Beaudesert',sa4:'Logan - Beaudesert',st:'qld',inUse:7,elig:11,total:18,r1:15,r2:9,r3:3,r4:0,r5:0,r6:0,cap13:42},
+  {sa3:'Beenleigh',sa4:'Logan - Beaudesert',st:'qld',inUse:24,elig:21,total:45,r1:22,r2:9,r3:4,r4:1,r5:0,r6:0,cap13:52},
+  {sa3:'Biloela',sa4:'Central Queensland',st:'qld',inUse:0,elig:1,total:1,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Bowen Basin - North',sa4:'Mackay - Isaac - Whitsunday',st:'qld',inUse:7,elig:2,total:9,r1:5,r2:3,r3:0,r4:0,r5:0,r6:0,cap13:11},
+  {sa3:'Bribie - Beachmere',sa4:'Moreton Bay - North',st:'qld',inUse:12,elig:8,total:20,r1:2,r2:5,r3:5,r4:0,r5:0,r6:0,cap13:27},
+  {sa3:'Brisbane Inner',sa4:'Brisbane Inner City',st:'qld',inUse:10,elig:7,total:17,r1:13,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:13},
+  {sa3:'Brisbane Inner - East',sa4:'Brisbane Inner City',st:'qld',inUse:15,elig:8,total:23,r1:15,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:15},
+  {sa3:'Brisbane Inner - North',sa4:'Brisbane Inner City',st:'qld',inUse:40,elig:22,total:62,r1:36,r2:3,r3:2,r4:1,r5:1,r6:0,cap13:48},
+  {sa3:'Brisbane Inner - West',sa4:'Brisbane Inner City',st:'qld',inUse:11,elig:9,total:20,r1:13,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:13},
+  {sa3:'Broadbeach - Burleigh',sa4:'Gold Coast',st:'qld',inUse:29,elig:12,total:41,r1:24,r2:1,r3:3,r4:0,r5:0,r6:0,cap13:35},
+  {sa3:'Browns Plains',sa4:'Logan - Beaudesert',st:'qld',inUse:92,elig:34,total:126,r1:21,r2:46,r3:27,r4:7,r5:0,r6:0,cap13:194},
+  {sa3:'Buderim',sa4:'Sunshine Coast',st:'qld',inUse:19,elig:17,total:36,r1:4,r2:2,r3:2,r4:1,r5:0,r6:1,cap13:14},
+  {sa3:'Bundaberg',sa4:'Wide Bay',st:'qld',inUse:85,elig:40,total:125,r1:22,r2:26,r3:17,r4:1,r5:1,r6:1,cap13:125},
+  {sa3:'Burnett',sa4:'Wide Bay',st:'qld',inUse:14,elig:10,total:24,r1:0,r2:4,r3:1,r4:0,r5:2,r6:0,cap13:11},
+  {sa3:'Caboolture',sa4:'Moreton Bay - North',st:'qld',inUse:100,elig:46,total:146,r1:49,r2:33,r3:18,r4:4,r5:2,r6:0,cap13:169},
+  {sa3:'Caboolture Hinterland',sa4:'Moreton Bay - North',st:'qld',inUse:0,elig:3,total:3,r1:0,r2:3,r3:0,r4:0,r5:0,r6:0,cap13:6},
+  {sa3:'Cairns - North',sa4:'Cairns',st:'qld',inUse:20,elig:15,total:35,r1:10,r2:2,r3:7,r4:0,r5:0,r6:0,cap13:35},
+  {sa3:'Cairns - South',sa4:'Cairns',st:'qld',inUse:86,elig:52,total:138,r1:72,r2:18,r3:17,r4:5,r5:0,r6:0,cap13:159},
+  {sa3:'Caloundra',sa4:'Sunshine Coast',st:'qld',inUse:72,elig:28,total:100,r1:25,r2:19,r3:15,r4:2,r5:0,r6:0,cap13:108},
+  {sa3:'Capalaba',sa4:'Brisbane - East',st:'qld',inUse:33,elig:29,total:62,r1:5,r2:9,r3:9,r4:1,r5:1,r6:0,cap13:50},
+  {sa3:'Carindale',sa4:'Brisbane - South',st:'qld',inUse:9,elig:18,total:27,r1:9,r2:6,r3:0,r4:0,r5:0,r6:0,cap13:21},
+  {sa3:'Centenary',sa4:'Brisbane - West',st:'qld',inUse:19,elig:16,total:35,r1:13,r2:1,r3:0,r4:0,r5:0,r6:0,cap13:15},
+  {sa3:'Central Highlands (Qld)',sa4:'Central Queensland',st:'qld',inUse:7,elig:1,total:8,r1:4,r2:1,r3:0,r4:0,r5:0,r6:0,cap13:6},
+  {sa3:'Charters Towers - Ayr - Ingham',sa4:'Townsville',st:'qld',inUse:7,elig:11,total:18,r1:0,r2:0,r3:1,r4:2,r5:0,r6:0,cap13:3},
+  {sa3:'Chermside',sa4:'Brisbane - North',st:'qld',inUse:31,elig:31,total:62,r1:29,r2:3,r3:2,r4:0,r5:0,r6:0,cap13:41},
+  {sa3:'Cleveland - Stradbroke',sa4:'Brisbane - East',st:'qld',inUse:62,elig:36,total:98,r1:35,r2:42,r3:12,r4:0,r5:0,r6:0,cap13:155},
+  {sa3:'Coolangatta',sa4:'Gold Coast',st:'qld',inUse:26,elig:13,total:39,r1:21,r2:0,r3:1,r4:1,r5:0,r6:0,cap13:24},
+  {sa3:'Darling Downs (West) - Maranoa',sa4:'Darling Downs - Maranoa',st:'qld',inUse:4,elig:13,total:17,r1:0,r2:2,r3:1,r4:0,r5:0,r6:0,cap13:7},
+  {sa3:'Darling Downs - East',sa4:'Darling Downs - Maranoa',st:'qld',inUse:2,elig:10,total:12,r1:2,r2:2,r3:1,r4:0,r5:0,r6:0,cap13:9},
+  {sa3:'Far North',sa4:'Queensland - Outback',st:'qld',inUse:0,elig:8,total:8,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Forest Lake - Oxley',sa4:'Ipswich',st:'qld',inUse:58,elig:78,total:136,r1:25,r2:14,r3:5,r4:5,r5:0,r6:0,cap13:68},
+  {sa3:'Gladstone',sa4:'Central Queensland',st:'qld',inUse:9,elig:22,total:31,r1:8,r2:3,r3:1,r4:1,r5:0,r6:0,cap13:17},
+  {sa3:'Gold Coast - North',sa4:'Gold Coast',st:'qld',inUse:17,elig:32,total:49,r1:18,r2:0,r3:1,r4:1,r5:0,r6:0,cap13:21},
+  {sa3:'Gold Coast Hinterland',sa4:'Gold Coast',st:'qld',inUse:0,elig:1,total:1,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Granite Belt',sa4:'Darling Downs - Maranoa',st:'qld',inUse:23,elig:10,total:33,r1:0,r2:8,r3:3,r4:1,r5:1,r6:1,cap13:25},
+  {sa3:'Gympie - Cooloola',sa4:'Wide Bay',st:'qld',inUse:21,elig:20,total:41,r1:5,r2:3,r3:6,r4:0,r5:1,r6:0,cap13:29},
+  {sa3:'Hervey Bay',sa4:'Wide Bay',st:'qld',inUse:70,elig:26,total:96,r1:24,r2:34,r3:19,r4:6,r5:0,r6:1,cap13:149},
+  {sa3:'Holland Park - Yeronga',sa4:'Brisbane - South',st:'qld',inUse:28,elig:19,total:47,r1:31,r2:3,r3:0,r4:0,r5:0,r6:0,cap13:37},
+  {sa3:'Innisfail - Cassowary Coast',sa4:'Cairns',st:'qld',inUse:7,elig:11,total:18,r1:0,r2:0,r3:3,r4:2,r5:0,r6:0,cap13:9},
+  {sa3:'Ipswich Hinterland',sa4:'Ipswich',st:'qld',inUse:7,elig:10,total:17,r1:3,r2:15,r3:6,r4:0,r5:0,r6:0,cap13:51},
+  {sa3:'Ipswich Inner',sa4:'Ipswich',st:'qld',inUse:121,elig:105,total:226,r1:43,r2:63,r3:52,r4:2,r5:0,r6:0,cap13:325},
+  {sa3:'Jimboomba',sa4:'Logan - Beaudesert',st:'qld',inUse:19,elig:11,total:30,r1:3,r2:14,r3:9,r4:0,r5:0,r6:0,cap13:58},
+  {sa3:'Kenmore - Brookfield - Moggill',sa4:'Brisbane - West',st:'qld',inUse:20,elig:6,total:26,r1:0,r2:12,r3:1,r4:0,r5:0,r6:0,cap13:27},
+  {sa3:'Loganlea - Carbrook',sa4:'Logan - Beaudesert',st:'qld',inUse:90,elig:28,total:118,r1:71,r2:16,r3:12,r4:3,r5:1,r6:1,cap13:139},
+  {sa3:'Mackay',sa4:'Mackay - Isaac - Whitsunday',st:'qld',inUse:58,elig:29,total:87,r1:19,r2:38,r3:4,r4:5,r5:1,r6:0,cap13:107},
+  {sa3:'Maroochy',sa4:'Sunshine Coast',st:'qld',inUse:12,elig:14,total:26,r1:12,r2:1,r3:0,r4:0,r5:1,r6:0,cap13:14},
+  {sa3:'Maryborough',sa4:'Wide Bay',st:'qld',inUse:34,elig:17,total:51,r1:6,r2:15,r3:10,r4:3,r5:0,r6:0,cap13:66},
+  {sa3:'Mt Gravatt',sa4:'Brisbane - South',st:'qld',inUse:12,elig:21,total:33,r1:11,r2:0,r3:0,r4:0,r5:1,r6:0,cap13:11},
+  {sa3:'Mudgeeraba - Tallebudgera',sa4:'Gold Coast',st:'qld',inUse:5,elig:6,total:11,r1:2,r2:0,r3:2,r4:0,r5:0,r6:0,cap13:8},
+  {sa3:'Nambour',sa4:'Sunshine Coast',st:'qld',inUse:34,elig:30,total:64,r1:8,r2:5,r3:5,r4:1,r5:3,r6:0,cap13:33},
+  {sa3:'Narangba - Burpengary',sa4:'Moreton Bay - North',st:'qld',inUse:81,elig:34,total:115,r1:6,r2:24,r3:17,r4:4,r5:4,r6:0,cap13:105},
+  {sa3:'Nathan',sa4:'Brisbane - South',st:'qld',inUse:17,elig:15,total:32,r1:2,r2:0,r3:3,r4:0,r5:0,r6:2,cap13:11},
+  {sa3:'Nerang',sa4:'Gold Coast',st:'qld',inUse:13,elig:14,total:27,r1:5,r2:4,r3:1,r4:0,r5:1,r6:0,cap13:16},
+  {sa3:'Noosa',sa4:'Sunshine Coast',st:'qld',inUse:9,elig:9,total:18,r1:0,r2:0,r3:2,r4:1,r5:0,r6:0,cap13:6},
+  {sa3:'Noosa Hinterland',sa4:'Sunshine Coast',st:'qld',inUse:4,elig:5,total:9,r1:2,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:2},
+  {sa3:'North Lakes',sa4:'Moreton Bay - South',st:'qld',inUse:50,elig:27,total:77,r1:31,r2:18,r3:4,r4:1,r5:0,r6:0,cap13:79},
+  {sa3:'Nundah',sa4:'Brisbane - North',st:'qld',inUse:38,elig:16,total:54,r1:24,r2:9,r3:6,r4:2,r5:2,r6:0,cap13:60},
+  {sa3:'Ormeau - Oxenford',sa4:'Gold Coast',st:'qld',inUse:120,elig:51,total:171,r1:42,r2:17,r3:31,r4:1,r5:0,r6:0,cap13:169},
+  {sa3:'Outback - North',sa4:'Queensland - Outback',st:'qld',inUse:0,elig:8,total:8,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Outback - South',sa4:'Queensland - Outback',st:'qld',inUse:0,elig:4,total:4,r1:0,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:0},
+  {sa3:'Port Douglas - Daintree',sa4:'Cairns',st:'qld',inUse:4,elig:0,total:4,r1:0,r2:0,r3:3,r4:0,r5:0,r6:0,cap13:9},
+  {sa3:'Redcliffe',sa4:'Moreton Bay - North',st:'qld',inUse:54,elig:35,total:89,r1:15,r2:5,r3:12,r4:0,r5:1,r6:1,cap13:61},
+  {sa3:'Robina',sa4:'Gold Coast',st:'qld',inUse:8,elig:21,total:29,r1:22,r2:2,r3:1,r4:0,r5:0,r6:0,cap13:29},
+  {sa3:'Rockhampton',sa4:'Central Queensland',st:'qld',inUse:76,elig:68,total:144,r1:27,r2:12,r3:8,r4:9,r5:1,r6:2,cap13:75},
+  {sa3:'Rocklea - Acacia Ridge',sa4:'Brisbane - South',st:'qld',inUse:28,elig:15,total:43,r1:10,r2:2,r3:14,r4:1,r5:0,r6:0,cap13:56},
+  {sa3:'Sandgate',sa4:'Brisbane - North',st:'qld',inUse:22,elig:27,total:49,r1:4,r2:5,r3:5,r4:1,r5:1,r6:0,cap13:29},
+  {sa3:'Sherwood - Indooroopilly',sa4:'Brisbane - West',st:'qld',inUse:10,elig:11,total:21,r1:0,r2:0,r3:0,r4:0,r5:1,r6:2,cap13:0},
+  {sa3:'Southport',sa4:'Gold Coast',st:'qld',inUse:54,elig:30,total:84,r1:46,r2:2,r3:2,r4:0,r5:1,r6:2,cap13:56},
+  {sa3:'Springfield - Redbank',sa4:'Ipswich',st:'qld',inUse:78,elig:32,total:110,r1:25,r2:28,r3:21,r4:2,r5:0,r6:1,cap13:144},
+  {sa3:'Springwood - Kingston',sa4:'Logan - Beaudesert',st:'qld',inUse:23,elig:17,total:40,r1:22,r2:6,r3:7,r4:0,r5:0,r6:0,cap13:55},
+  {sa3:'Strathpine',sa4:'Moreton Bay - South',st:'qld',inUse:25,elig:11,total:36,r1:7,r2:9,r3:9,r4:2,r5:1,r6:0,cap13:52},
+  {sa3:'Sunnybank',sa4:'Brisbane - South',st:'qld',inUse:18,elig:23,total:41,r1:6,r2:1,r3:4,r4:1,r5:1,r6:0,cap13:20},
+  {sa3:'Sunshine Coast Hinterland',sa4:'Sunshine Coast',st:'qld',inUse:28,elig:19,total:47,r1:20,r2:4,r3:2,r4:0,r5:0,r6:0,cap13:34},
+  {sa3:'Surfers Paradise',sa4:'Gold Coast',st:'qld',inUse:11,elig:9,total:20,r1:13,r2:0,r3:0,r4:0,r5:0,r6:0,cap13:13},
+  {sa3:'Tablelands (East) - Kuranda',sa4:'Cairns',st:'qld',inUse:7,elig:18,total:25,r1:6,r2:1,r3:5,r4:0,r5:0,r6:1,cap13:23},
+  {sa3:'The Gap - Enoggera',sa4:'Brisbane - West',st:'qld',inUse:37,elig:9,total:46,r1:22,r2:2,r3:3,r4:1,r5:0,r6:0,cap13:35},
+  {sa3:'The Hills District',sa4:'Moreton Bay - South',st:'qld',inUse:12,elig:13,total:25,r1:15,r2:2,r3:1,r4:1,r5:1,r6:0,cap13:22},
+  {sa3:'Toowoomba',sa4:'Toowoomba',st:'qld',inUse:174,elig:119,total:293,r1:64,r2:74,r3:25,r4:11,r5:2,r6:4,cap13:287},
+  {sa3:'Townsville',sa4:'Townsville',st:'qld',inUse:122,elig:84,total:206,r1:73,r2:74,r3:38,r4:7,r5:2,r6:2,cap13:335},
+  {sa3:'Whitsunday',sa4:'Mackay - Isaac - Whitsunday',st:'qld',inUse:4,elig:1,total:5,r1:0,r2:0,r3:0,r4:2,r5:0,r6:0,cap13:0},
+  {sa3:'Wynnum - Manly',sa4:'Brisbane - East',st:'qld',inUse:41,elig:23,total:64,r1:37,r2:8,r3:5,r4:0,r5:0,r6:0,cap13:68},
+];var PARAMS={
   vic:{stamp:0.055,ba:0.04,leg:1000,pexa:495,val:3500,b2p:650000,b3p:770000,bdp:645000,cg:0.03,c2p:219430,c3p:255660,cdp:425460,cap:0.065,exitCost:100000,rg:0.03,hold:5},
   nsw:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:1150000,b3p:1150000,bdp:1150000,cg:0.05,c2p:180000,c3p:209470,cdp:400000,cap:0.065,exitCost:100000,rg:0.03,hold:5},
   qld:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:710000,b3p:800000,bdp:710000,cg:0.03,c2p:108000,c3p:127675,cdp:215000,cap:0.065,exitCost:100000,rg:0.03,hold:5}
@@ -4524,7 +4538,7 @@ function buildDetail(pr,tgt){
   var cat=getCat(),catLabel=getCatLabel();
   var sdaCard=pr.sda?'<div class="dcard"><h4>SDA pricing \u2014 '+pr.sda.sa4+' ('+pr.state.toUpperCase()+')</h4>'
     +'<div style="font-size:10px;background:#f0f5fb;color:#185FA5;padding:4px 8px;border-radius:4px;margin-bottom:6px;font-weight:600">Calculating on: '+catLabel+(cat==='best'?' (highest available)':' category')+'</div>'
-    +'<div class="dr2"><span class="l">SA4 participants</span><span class="v">'+pr.sda.d+'</span></div>'
+    +'<div class="dr2"><span class="l">SA4 demand (total participants)</span><span class="v">'+pr.sda.d+'</span></div>'
     +(pr.sda.il2?'<div class="dr2 '+(cat==='il'||cat==='best'&&pr.sda.il2>=pr.sda.fa2&&pr.sda.il2>=pr.sda.hps2?'hi':'')+'"><span class="l">IL (2P)/yr'+(cat==='il'?' \u2713':cat==='best'&&pr.sda.il2>=pr.sda.fa2&&pr.sda.il2>=pr.sda.hps2?' \u2713 (selected)':'')+'</span><span class="v">$'+pr.sda.il2.toLocaleString()+'</span></div>':'')
     +(pr.sda.fa2?'<div class="dr2 '+(cat==='fa'||cat==='best'&&pr.sda.fa2>=pr.sda.il2&&pr.sda.fa2>=pr.sda.hps2?'hi':'')+'"><span class="l">FA (2P)/yr'+(cat==='fa'?' \u2713':cat==='best'&&pr.sda.fa2>=pr.sda.il2&&pr.sda.fa2>=pr.sda.hps2?' \u2713 (selected)':'')+'</span><span class="v">$'+pr.sda.fa2.toLocaleString()+'</span></div>':'')
     +(pr.sda.hps2?'<div class="dr2 '+(cat==='hps'||cat==='best'&&pr.sda.hps2>=pr.sda.il2&&pr.sda.hps2>=pr.sda.fa2?'hi':'')+'"><span class="l">HPS (2P)/yr'+(cat==='hps'?' \u2713':cat==='best'&&pr.sda.hps2>=pr.sda.il2&&pr.sda.hps2>=pr.sda.fa2?' \u2713 (selected)':'')+'</span><span class="v">$'+pr.sda.hps2.toLocaleString()+'</span></div>':'')
@@ -4543,18 +4557,36 @@ function buildDetail(pr,tgt){
   var resolvedSA3=resolveSA3Name(pr.addr,pr.state,typeof pr.sa3==='string'?pr.sa3:'');
   var sa3Obj=getSA3(resolvedSA3,pr.sa4,pr.state)||null;
   var sa3Card=(function(){
-  if(!sa3Obj) return '';
-  var trueDemand=Math.max(0,(sa3Obj.inSDA||0)-(sa3Obj.pts13||0));
-  var undersupply=Math.max(0,trueDemand-(sa3Obj.sup13||0));
-  return '<div class="dcard"><h4>SA3 demand \u2014 '+sa3Obj.sa3+'</h4>'
-    +'<div class="dr2"><span class="l">SA4 total participants</span><span class="v">'+sa3Obj.p+'</span></div>'
-    +'<div class="dr2"><span class="l">In SDA (SA4)</span><span class="v">'+sa3Obj.inSDA+'</span></div>'
-    +'<div class="dr2"><span class="l">Housed in 1\u20133BR (SA3)</span><span class="v" style="color:#185FA5">'+sa3Obj.pts13+'</span></div>'
-    +'<div class="dr2 hi"><span class="l">True unmet demand</span><span class="v" style="color:#A32D2D;font-weight:700">'+trueDemand+'</span></div>'
-    +'<div class="dr2"><span class="l">1\u20133BR enrolled (SA3)</span><span class="v">'+sa3Obj.sup13+'</span></div>'
-    +'<div class="dr2"><span class="l">Undersupply</span><span class="v" style="color:'+(undersupply>0?'#A32D2D':'#0F6E56')+';font-weight:700">'
-    +(undersupply>0?undersupply+' places':'Sufficient')+'</span></div>'
-    +'</div>';
+  if(!sa3Obj && !pr.sda) return '';
+  var html = '<div class="dcard"><h4>Demand &amp; supply</h4>';
+  // SA4 line — always shown if we have SA4 data
+  if (pr.sda) {
+    html += '<div style="font-size:10px;color:#9CA3AF;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">SA4 \u2014 '+pr.sda.sa4+'</div>'
+         +  '<div class="dr2"><span class="l">Total participants needing SDA</span><span class="v" style="font-weight:700">'+pr.sda.d+'</span></div>';
+  }
+  // SA3 lines
+  if (sa3Obj) {
+    var total = sa3Obj.total || 0;
+    var cap13 = sa3Obj.cap13 || 0;
+    var gap = total - cap13;
+    var isUnder = gap > 0, isBal = gap === 0;
+    var gapCol  = isUnder ? '#0F6E56' : (isBal ? '#666' : '#A32D2D');
+    var gapText = isUnder ? gap + ' places undersupply'
+                : (isBal  ? 'Balanced'
+                : Math.abs(gap) + ' places oversupply');
+    var bgCol   = isUnder ? '#EAF3DE' : (isBal ? '#F0F0F0' : '#FCEBEB');
+    if (pr.sda) html += '<div style="height:6px"></div>';
+    html += '<div style="font-size:10px;color:#9CA3AF;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px">SA3 \u2014 '+sa3Obj.sa3+'</div>'
+         +  '<div class="dr2"><span class="l">Total participants needing SDA</span><span class="v" style="font-weight:700">'+total+'</span></div>'
+         +  '<div class="dr2"><span class="l">1-3BR dwelling capacity (preferred)</span><span class="v" style="font-weight:700">'+cap13+' places</span></div>'
+         +  '<div style="height:6px"></div>'
+         +  '<div class="dr2 hi" style="background:'+bgCol+';padding:6px 8px;border-radius:6px;margin:0 -2px">'
+         +    '<span class="l" style="font-weight:700">Undersupply</span>'
+         +    '<span class="v" style="color:'+gapCol+';font-weight:700">'+gapText+'</span>'
+         +  '</div>';
+  }
+  html += '</div>';
+  return html;
 })();
 
   var addr=pr.addr;
@@ -5335,9 +5367,17 @@ function exportPDFCover(id,e){
     y+=5;
     doc.setFont('helvetica','normal');doc.setFontSize(8);
     doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
-    var unmet=Math.max(0,(sa3Obj.inSDA||0)-(sa3Obj.pts13||0));
-    var undersupply=Math.max(0,unmet-(sa3Obj.sup13||0));
-    doc.text('SA4 SDA-funded participants: '+(sa3Obj.p||0)+'  |  In SDA: '+(sa3Obj.inSDA||0)+'  |  Unmet demand: '+unmet+'  |  Undersupply: '+undersupply+' places',14,y);
+    var pdfTotal = sa3Obj.total || 0;
+    var pdfCap13 = sa3Obj.cap13 || 0;
+    var pdfGap   = pdfTotal - pdfCap13;
+    var pdfStatus = pdfGap > 0 ? pdfGap+' places undersupply'
+                  : (pdfGap === 0 ? 'Balanced'
+                  : Math.abs(pdfGap)+' places oversupply');
+    if (sda && typeof sda.d === 'number') {
+      doc.text('SA4 ('+sda.sa4+'):  '+sda.d+' total participants needing SDA', 14, y);
+      y+=4;
+    }
+    doc.text('SA3 ('+sa3Obj.sa3+'):  '+pdfTotal+' total  |  1-3BR capacity '+pdfCap13+' places  |  '+pdfStatus, 14, y);
     y+=4;
     // Participant mix breakdown per model
     if (models && models.length) {
@@ -5965,17 +6005,26 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
     new D.TableRow({children:[tc('HPS — High Physical Support',{bold:true,bg:LGRAY,w:3120}),tc(sda.hps2?dollar(sda.hps2):'n/a',{w:3120}),tc(sda.hps3?dollar(sda.hps3):'n/a',{w:3120})]}),
     new D.TableRow({children:[tc('RRC (per participant/yr)',{bold:true,bg:LGRAY,w:3120}),tc(dollar(13171),{w:3120}),tc(dollar(13171),{w:3120})]}),
   ]})]:[new D.Paragraph({children:[new D.TextRun({text:'No SDA pricing available.',italics:true,font:'Arial',size:20})]})]);
-  if(sa3){ch=ch.concat([
-    sh('3. Participant Demand — '+sa3.sa3),
-    new D.Table({width:{size:9360,type:D.WidthType.DXA},columnWidths:[5580,3780],rows:[
-      new D.TableRow({tableHeader:true,children:[hc('Metric',5580),hc('Count',3780)]}),
-      r2('SA4 total participants with SDA funding',sa3.p),
-      r2('Already in SDA (SA4)',sa3.inSDA),
-      r2('Housed in 1–3BR dwellings (SA3)',sa3.pts13||0),
-      r2('True unmet demand',Math.max(0,(sa3.inSDA||0)-(sa3.pts13||0)),true),
-      r2('1–3BR enrolled dwellings (SA3)',sa3.sup13||0),
-      r2('Undersupply',Math.max(0,Math.max(0,(sa3.inSDA||0)-(sa3.pts13||0))-(sa3.sup13||0))+' places',true),
-    ]})
+  if(sa3){
+    var docTotal = sa3.total || 0;
+    var docCap13 = sa3.cap13 || 0;
+    var docGap = docTotal - docCap13;
+    var docStatus = docGap > 0 ? (docGap + ' places undersupply')
+                  : (docGap === 0 ? 'Balanced'
+                  : (Math.abs(docGap) + ' places oversupply'));
+    var docSa4Total = (sda && typeof sda.d === 'number') ? sda.d : null;
+    var docTableRows = [
+      new D.TableRow({tableHeader:true,children:[hc('Metric',5580),hc('Value',3780)]})
+    ];
+    if (docSa4Total !== null) {
+      docTableRows.push(r2('SA4 ('+sda.sa4+') total participants needing SDA', docSa4Total));
+    }
+    docTableRows.push(r2('SA3 ('+sa3.sa3+') total participants needing SDA', docTotal, true));
+    docTableRows.push(r2('1-3BR dwelling capacity (preferred)', docCap13+' places'));
+    docTableRows.push(r2('Undersupply', docStatus, true));
+    ch=ch.concat([
+    sh('3. Participant Demand'),
+    new D.Table({width:{size:9360,type:D.WidthType.DXA},columnWidths:[5580,3780],rows:docTableRows})
   ]);}
   // Feasibility Analysis starts on a fresh page so the heading and the first
   // model don't get squeezed onto the bottom of an earlier page.
@@ -6090,10 +6139,36 @@ function renderPricing(){
 
 function renderDemand(){
   var sf=document.getElementById('dst').value,ss=document.getElementById('dq').value.toLowerCase(),under=document.getElementById('du').value;
-  var rows=SA3D.filter(function(r){return(!sf||r.st===sf)&&(!ss||r.sa3.toLowerCase().indexOf(ss)>=0||r.sa4.toLowerCase().indexOf(ss)>=0)&&(under!=='yes'||r.p>r.sup13);});
+  // Filter: state, search, undersupply-only (gap = total - cap13 > 0)
+  var rows=SA3D.filter(function(r){
+    var gap = (r.total||0) - (r.cap13||0);
+    return (!sf||r.st===sf)
+      && (!ss||r.sa3.toLowerCase().indexOf(ss)>=0||r.sa4.toLowerCase().indexOf(ss)>=0)
+      && (under!=='yes'||gap>0);
+  });
   document.getElementById('dtbody').innerHTML=rows.map(function(r){
-    var us=Math.max(0,r.p-r.sup13),isU=r.p>r.sup13;
-    return'<tr><td><strong>'+r.sa3+'</strong></td><td>'+r.sa4+'</td><td>'+r.p+'</td><td>'+r.inSDA+'</td><td style="color:#0F6E56;font-weight:700">'+r.seek+'</td><td>'+r.sup+'</td><td>'+r.sup13+'</td><td style="color:'+(isU?'#0F6E56':'#A32D2D')+';font-weight:700">'+(isU?'+'+us:'-'+(r.sup13-r.p))+'</td><td><span class="badge '+(isU?'bp':'bf')+'">'+(isU?'undersupply':'oversupply')+'</span></td></tr>';
+    var total = r.total||0, cap13 = r.cap13||0;
+    var gap = total - cap13;
+    var isU = gap > 0;        // undersupply = good for investor
+    var isB = gap === 0;      // balanced
+    // Larger-dwelling resident count (4+ residents — not living in preferred housing)
+    var larger = (r.r4||0)*4 + (r.r5||0)*5 + (r.r6||0)*6;
+    // Colours: green = undersupply (good), red = oversupply (bad), grey = balanced
+    var balCol = isU ? '#0F6E56' : (isB ? '#666' : '#A32D2D');
+    var balText = isU ? '+'+gap : (isB ? '0' : String(gap));
+    var badgeCls = isU ? 'bp' : (isB ? 'bm' : 'bf');
+    var badgeText = isU ? 'undersupply' : (isB ? 'balanced' : 'oversupply');
+    return '<tr>'
+      +'<td><strong>'+r.sa3+'</strong></td>'
+      +'<td>'+r.sa4+'</td>'
+      +'<td>'+total+'</td>'
+      +'<td>'+(r.inUse||0)+'</td>'
+      +'<td style="color:#185FA5;font-weight:700">'+(r.elig||0)+'</td>'
+      +'<td>'+cap13+'</td>'
+      +'<td>'+larger+'</td>'
+      +'<td style="color:'+balCol+';font-weight:700">'+balText+'</td>'
+      +'<td><span class="badge '+badgeCls+'">'+badgeText+'</span></td>'
+      +'</tr>';
   }).join('')||'<tr><td colspan="9" class="empty">No data</td></tr>';
 }
 
@@ -6971,23 +7046,23 @@ function runLookup(){
 
   // SA4 demand card
   var sa4html='';
-  if(sda) sa4html+=dRow('SA4 participants',sda.d);
-  if(sa3Obj){
-    sa4html+=dRow('In SDA (SA4)',sa3Obj.inSDA);
-    sa4html+=dRow('Seeking SDA',sa3Obj.seek,'#185FA5');
-  }
+  if(sda) sa4html+=dRow('SA4 demand (total participants)',sda.d);
   document.getElementById('lk-sa4-card').innerHTML=sa4html||'<span style="font-size:11px;color:#9CA3AF">No data</span>';
 
   // SA3 demand card
   document.getElementById('lk-sa3-name').textContent=sa3name;
   var sa3html='';
   if(sa3Obj){
-    var trueDem=Math.max(0,(sa3Obj.inSDA||0)-(sa3Obj.pts13||0));
-    var undersup=Math.max(0,trueDem-(sa3Obj.sup13||0));
-    sa3html+=dRow('Housed in 1-3BR',sa3Obj.pts13||0);
-    sa3html+=dRow('True unmet demand',trueDem,'#A32D2D');
-    sa3html+=dRow('1-3BR enrolled',sa3Obj.sup13||0);
-    sa3html+=dRow('Undersupply',undersup>0?undersup+' places':'Sufficient',undersup>0?'#A32D2D':'#0F6E56');
+    var lkTotal = sa3Obj.total || 0;
+    var lkCap13 = sa3Obj.cap13 || 0;
+    var lkGap = lkTotal - lkCap13;
+    var lkStatusText = lkGap > 0 ? lkGap+' places undersupply'
+                     : (lkGap === 0 ? 'Balanced'
+                     : Math.abs(lkGap)+' places oversupply');
+    var lkStatusCol  = lkGap > 0 ? '#0F6E56' : (lkGap === 0 ? '#666' : '#A32D2D');
+    sa3html+=dRow('Total participants needing SDA',lkTotal);
+    sa3html+=dRow('1-3BR dwelling capacity (preferred)',lkCap13+' places');
+    sa3html+=dRow('Undersupply',lkStatusText,lkStatusCol);
   } else {
     sa3html='<span style="font-size:11px;color:#9CA3AF">No SA3 data</span>';
   }

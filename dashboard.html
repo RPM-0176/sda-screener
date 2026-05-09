@@ -158,6 +158,7 @@ tr.dr:hover td{background:#fafaf9}
 
 <div class="tabs">
   <button class="tab on" onclick="sw('screen',this)">Screener</button>
+  <button class="tab" onclick="sw('propmap',this)">Property Map</button>
   <button class="tab" onclick="sw('pricing',this)">SDA Pricing</button>
   <button class="tab" onclick="sw('demand',this)">SA3 Demand</button>
   <button class="tab" onclick="sw('sdamap',this)">SDA Map</button>
@@ -228,6 +229,32 @@ tr.dr:hover td{background:#fafaf9}
     </table>
   </div>
   <p style="font-size:10px;color:#888;margin-top:8px">Click any row to expand full feasibility &middot; Click address to open in RP Data</p>
+</div>
+
+<div id="panel-propmap" class="panel">
+  <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end">
+    <div class="fg" style="display:flex;align-items:center;gap:8px">
+      <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#0F6E56;flex-shrink:0"></span>
+      <span style="font-size:11px;color:#6B7280;font-weight:600">Pass (\u2265 target return)</span>
+    </div>
+    <div class="fg">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer;font-size:11px">
+        <input type="checkbox" id="pmap-near-miss" onchange="renderPropMap()">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F59E0B"></span>
+        Show near-misses (within 1pp of target)
+      </label>
+    </div>
+    <div class="fg" style="text-align:right">
+      <span id="pmap-counts" style="font-size:11px;color:#6B7280"></span>
+    </div>
+  </div>
+  <div id="propmap" style="width:100%;height:640px;border-radius:8px;overflow:hidden;background:#e5e7eb;position:relative">
+    <div id="propmap-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#6B7280;padding:20px;flex-direction:column;gap:6px">
+      <div style="font-weight:600;color:#374151">Map loads when this tab is opened</div>
+      <div>Filters from the Screener tab also apply here.</div>
+    </div>
+  </div>
+  <p style="font-size:10px;color:#888;margin-top:8px">Click a pin to jump to that property's full detail. Geocoding is cached locally so revisits are instant.</p>
 </div>
 
 <div id="panel-pricing" class="panel">
@@ -4303,6 +4330,11 @@ function applyF(){
     return 0;
   });
   updateMetrics(tgt);renderTable(tgt);
+  // If the property map has been opened, re-render with new filtered set.
+  // Only fires if map has actually been initialised — no-op otherwise.
+  if (typeof pmapInitialised !== 'undefined' && pmapInitialised) {
+    try { renderPropMap(); } catch(ex){}
+  }
   saveView();
 }
 
@@ -5056,6 +5088,8 @@ function exportPDFCover(id,e){
   var GRAY_LIGHT=[235,238,243];
   var GREEN=[15,110,86];
   var RED=[163,45,45];
+  var AMBER=[186,117,23];
+  var LIGHT=[235,238,243];
 
   // Header band with logo
   doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]);
@@ -5187,6 +5221,76 @@ function exportPDFCover(id,e){
       doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
       y+=6;
     });
+  }
+
+  // ===== Sensitivity Analysis section =====
+  if (sda && models && models.length) {
+    // Page-break check — sensitivity needs ~50mm of vertical space
+    if (y > 220) { doc.addPage(); y = 15; }
+    y+=4;
+    doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
+    doc.setFont('helvetica','bold');doc.setFontSize(11);
+    doc.text('Sensitivity Analysis',14,y);
+    doc.setDrawColor(ACCENT[0],ACCENT[1],ACCENT[2]);doc.setLineWidth(0.6);
+    doc.line(14,y+1.5,196,y+1.5);
+    y+=5;
+    doc.setFont('helvetica','normal');doc.setFontSize(8);
+    doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
+    doc.text('How returns hold up under stress. Base case = current assumptions.',14,y);
+    y+=5;
+
+    var sensScenarios = [
+      { name:'Base case',         overrides:{} },
+      { name:'Interest +2%',      overrides:{ irBump:0.02 } },
+      { name:'Build cost +10%',   overrides:{ buildMult:1.10 } },
+      { name:'SDA rate -10%',     overrides:{ rateMult:0.90 } },
+      { name:'Vacancy 10%',       overrides:{ vacancyPct:0.10 } }
+    ];
+    // Header row
+    var sensHeaders = ['Scenario','2P unlev','2P lev','3P unlev','3P lev','DP unlev','DP lev'];
+    var sensColW    = [44,         22,        22,      22,        22,      22,        22];
+    var sensColX    = [14];
+    for (var si=1; si<sensHeaders.length; si++) sensColX[si] = sensColX[si-1] + sensColW[si-1];
+    doc.setFillColor(LIGHT[0],LIGHT[1],LIGHT[2]);
+    doc.rect(14,y,182,5.5,'F');
+    doc.setFont('helvetica','bold');doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);doc.setFontSize(8);
+    sensHeaders.forEach(function(h,i){ doc.text(h, sensColX[i]+1, y+4); });
+    y+=5.5;
+    // Compute baseline first so we can show deltas
+    var sensBase = ['2p','3p','dp'].map(function(mc){
+      return calcSensitivity(livePrice, pr.land, sda, mc, p, propCatVal, extrasTotal, {});
+    });
+    // Rows
+    sensScenarios.forEach(function(sc, scIdx){
+      var rowFill = scIdx === 0 ? [240,250,245] : (scIdx % 2 === 0 ? [248,248,248] : null);
+      if (rowFill) { doc.setFillColor(rowFill[0],rowFill[1],rowFill[2]); doc.rect(14,y,182,5,'F'); }
+      doc.setFont('helvetica','bold');doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);doc.setFontSize(8);
+      doc.text(sc.name, sensColX[0]+1, y+3.6);
+      ['2p','3p','dp'].forEach(function(mc, mIdx){
+        var s = calcSensitivity(livePrice, pr.land, sda, mc, p, propCatVal, extrasTotal, sc.overrides);
+        var unlevX = sensColX[1 + mIdx*2];
+        var levX   = sensColX[2 + mIdx*2];
+        if (!s) {
+          doc.setFont('helvetica','normal');doc.setTextColor(160,160,160);
+          doc.text('—', unlevX+1, y+3.6);
+          doc.text('—', levX+1, y+3.6);
+          return;
+        }
+        var ok   = s.ret    >= tgt;
+        var lvOk = s.levRet >= tgt;
+        var retCol = ok   ? GREEN : (s.ret>0    ? AMBER : RED);
+        var lvCol  = lvOk ? GREEN : (s.levRet>0 ? AMBER : RED);
+        doc.setFont('helvetica','normal');doc.setTextColor(retCol[0],retCol[1],retCol[2]);
+        doc.text((s.ret*100).toFixed(2)+'%', unlevX+1, y+3.6);
+        doc.setTextColor(lvCol[0],lvCol[1],lvCol[2]);
+        doc.text((s.levRet*100).toFixed(2)+'%', levX+1, y+3.6);
+      });
+      y += 5;
+    });
+    doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
+    doc.setFont('helvetica','italic');doc.setFontSize(7);
+    doc.text('Green = passes target ('+(tgt*100).toFixed(1)+'%) \u2022 Amber = positive but below target \u2022 Red = negative return',14,y+3);
+    y += 6;
   }
 
   // Assumptions block
@@ -5465,11 +5569,22 @@ function exportPDFCover(id,e){
     return loadImageAsDataURL(mapUrl);
   });
 
-  Promise.all([amenityPromise, mapPromise, suburbPromise]).then(function(values){
+  // Nearby SDA properties (existing & permitted within 5km) for market context.
+  // Reuses the same /api/sda-nearby endpoint used by the detail panel.
+  var nearbySdaPromise = fetch('/api/sda-nearby?address=' + encodeURIComponent(pr.addr) + '&radius=5000', {credentials: 'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data && data.error) { return null; }
+      return data;
+    })
+    .catch(function(){ return null; });
+
+  Promise.all([amenityPromise, mapPromise, suburbPromise, nearbySdaPromise]).then(function(values){
     var amenities = values[0].items;
     var coords = values[0].coords;
     var mapDataUrl = values[1];
     var suburbInfo = values[2];
+    var nearbySda = values[3];
     if (mapDataUrl || amenities.length || suburbInfo) {
       // ===== FULL-WIDTH AMENITIES TABLE =====
       if (amenities.length) {
@@ -5594,7 +5709,88 @@ function exportPDFCover(id,e){
       }
     }
 
-    // Footer band — single page only
+    // ===== LOCAL SDA MARKET CONTEXT =====
+    // Existing & permitted SDA properties within 5km of subject.
+    // On its own page so the table has room to breathe.
+    if (nearbySda && (
+        (Array.isArray(nearbySda.existing) && nearbySda.existing.length) ||
+        (Array.isArray(nearbySda.permitted) && nearbySda.permitted.length)
+       )) {
+      doc.addPage();
+      var ny = 15;
+      // Title
+      doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
+      doc.setFont('helvetica','bold'); doc.setFontSize(13);
+      doc.text('Local SDA Market Context', 14, ny);
+      doc.setDrawColor(ACCENT[0],ACCENT[1],ACCENT[2]); doc.setLineWidth(0.6);
+      doc.line(14, ny+1.5, 196, ny+1.5);
+      ny += 7;
+      doc.setFont('helvetica','normal'); doc.setFontSize(9);
+      doc.setTextColor(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2]);
+      var existingArr  = Array.isArray(nearbySda.existing)  ? nearbySda.existing  : [];
+      var permittedArr = Array.isArray(nearbySda.permitted) ? nearbySda.permitted : [];
+      doc.text('Existing & permitted SDA dwellings within 5 km of the subject site. Sourced from DRC SDA register and council permits dataset.', 14, ny, {maxWidth:182});
+      ny += 8;
+      doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
+      doc.text('Summary: ' + existingArr.length + ' existing \u2022 ' + permittedArr.length + ' permitted', 14, ny);
+      ny += 7;
+
+      // Render the two lists side by side as columns
+      function renderSdaList(title, items, colour, x, w) {
+        var ly = ny;
+        // Heading band
+        doc.setFillColor(colour[0], colour[1], colour[2]);
+        doc.rect(x, ly, w, 6, 'F');
+        doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.text(title + ' (' + items.length + ')', x+2, ly+4);
+        ly += 6;
+        if (!items.length) {
+          doc.setFont('helvetica','italic'); doc.setFontSize(8);
+          doc.setTextColor(160,160,160);
+          doc.text('None within 5km', x+2, ly+4);
+          return ly + 6;
+        }
+        // Show top 15 by distance
+        var sorted = items.slice().sort(function(a,b){
+          var da = typeof a.distance_km === 'number' ? a.distance_km : 9999;
+          var db = typeof b.distance_km === 'number' ? b.distance_km : 9999;
+          return da - db;
+        }).slice(0, 15);
+        sorted.forEach(function(it, idx){
+          if (idx % 2 === 0) { doc.setFillColor(247,248,250); doc.rect(x, ly, w, 5, 'F'); }
+          doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+          doc.setTextColor(GRAY_TEXT[0], GRAY_TEXT[1], GRAY_TEXT[2]);
+          var addr  = String(it.address || it.addr || '\u2014');
+          var dist  = (typeof it.distance_km === 'number') ? it.distance_km.toFixed(1)+' km' : '\u2014';
+          // Truncate address to fit
+          var maxAddr = w - 18;
+          var truncAddr = doc.splitTextToSize(addr, maxAddr)[0];
+          if (truncAddr.length < addr.length) truncAddr = truncAddr.substring(0, truncAddr.length-1) + '\u2026';
+          doc.text(truncAddr, x+2, ly+3.5);
+          doc.text(dist, x+w-2, ly+3.5, {align:'right'});
+          ly += 5;
+        });
+        if (items.length > 15) {
+          doc.setFont('helvetica','italic'); doc.setFontSize(7);
+          doc.setTextColor(160,160,160);
+          doc.text('+ ' + (items.length - 15) + ' more', x+2, ly+3);
+          ly += 5;
+        }
+        return ly;
+      }
+
+      var halfW = 89;
+      var leftEnd  = renderSdaList('Existing',  existingArr,  GREEN,  14,        halfW);
+      var rightEnd = renderSdaList('Permitted', permittedArr, [234,88,12], 14+halfW+4, halfW);
+      ny = Math.max(leftEnd, rightEnd) + 4;
+
+      doc.setFont('helvetica','italic'); doc.setFontSize(7.5);
+      doc.setTextColor(160,160,160);
+      doc.text('Distances are straight-line from subject site. Density of existing & permitted SDA gives an indicator of competitive supply pressure.', 14, ny, {maxWidth:182});
+    }
+
+    // Footer band — drawn on the LAST page only
     doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]);
     doc.rect(0,283,210,14,'F');
     doc.setTextColor(255,255,255);
@@ -5747,15 +5943,75 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
     }
     modelRows(m).forEach(function(el){ch.push(el);});
   });
+
+  // ===== Sensitivity Analysis section =====
+  if (sda && models.length) {
+    ch.push(new D.Paragraph({children:[new D.PageBreak()]}));
+    ch.push(sh((4+sn)+'. Sensitivity Analysis'));
+    ch.push(new D.Paragraph({
+      spacing:{after:160},
+      children:[new D.TextRun({
+        text:'How returns hold up under stress scenarios. Base case = current assumptions. Each cell shows unlevered % / levered %.',
+        font:'Arial', size:18, color:'6B7280', italics:true
+      })]
+    }));
+    var sensScenariosD = [
+      { name:'Base case',         overrides:{} },
+      { name:'Interest +2%',      overrides:{ irBump:0.02 } },
+      { name:'Build cost +10%',   overrides:{ buildMult:1.10 } },
+      { name:'SDA rate \u201310%', overrides:{ rateMult:0.90 } },
+      { name:'Vacancy 10%',       overrides:{ vacancyPct:0.10 } }
+    ];
+    function sensCellText(s, ok, lvOk) {
+      if (!s) return '\u2014';
+      return (s.ret*100).toFixed(2)+'% / '+(s.levRet*100).toFixed(2)+'%';
+    }
+    function sensCellColor(s) {
+      if (!s) return '999999';
+      return s.ret >= tgt ? GREEN : (s.ret > 0 ? 'BA7517' : RED);
+    }
+    var sensRows = [
+      new D.TableRow({tableHeader:true, children:[
+        hc('Scenario', 3000),
+        hc('2P House', 2120),
+        hc('3P House', 2120),
+        hc('Duplex',   2120)
+      ]})
+    ];
+    sensScenariosD.forEach(function(sc, scIdx) {
+      var rowBg = scIdx === 0 ? 'F0FAF5' : (scIdx % 2 === 0 ? 'F8F8F8' : 'FFFFFF');
+      var cells = [tc(sc.name, {bold:true, bg:rowBg, w:3000})];
+      ['2p','3p','dp'].forEach(function(mc){
+        var s = calcSensitivity(livePrice, pr.land, sda, mc, p, propCatVal, extrasTotal, sc.overrides);
+        if (!s) {
+          cells.push(tc('\u2014', {bg:rowBg, w:2120, align:D.AlignmentType.CENTER, color:'999999'}));
+          return;
+        }
+        var col = sensCellColor(s);
+        cells.push(tc(sensCellText(s), {bg:rowBg, w:2120, align:D.AlignmentType.CENTER, color:col, bold:scIdx===0}));
+      });
+      sensRows.push(new D.TableRow({children:cells}));
+    });
+    ch.push(new D.Table({width:{size:9360,type:D.WidthType.DXA}, columnWidths:[3000,2120,2120,2120], rows:sensRows}));
+    ch.push(new D.Paragraph({
+      spacing:{before:120, after:200},
+      children:[new D.TextRun({
+        text:'Format: unlevered return / levered return. Green = passes target ('+(tgt*100).toFixed(1)+'%) \u2022 Amber = positive but below target \u2022 Red = negative.',
+        font:'Arial', size:16, color:'6B7280', italics:true
+      })]
+    }));
+  }
+  var sensSn = (sda && models.length) ? 1 : 0;
+
   if(extras.length>0){
-    ch.push(sh((4+sn)+'. Cost Adjustments'));
+    ch.push(sh((4+sn+sensSn)+'. Cost Adjustments'));
     ch.push(new D.Table({width:{size:9360,type:D.WidthType.DXA},columnWidths:[6480,2880],rows:[
       new D.TableRow({tableHeader:true,children:[hc('Item',6480),hc('Amount',2880)]}),
     ].concat(extras.map(function(ex){return new D.TableRow({children:[tc(ex.label,{w:6480}),tc(dollar(ex.cost),{w:2880,align:D.AlignmentType.RIGHT,color:ex.cost>0?RED:GREEN})]});}))
      .concat([new D.TableRow({children:[tc('Total adjustments',{bold:true,bg:LGRAY,w:6480}),tc(dollar(extras.reduce(function(s,x){return s+x.cost;},0)),{w:2880,align:D.AlignmentType.RIGHT,bold:true})]})])}));
   }
   ch=ch.concat([
-    sh((4+sn+extrasSn)+'. Committee Notes'),
+    sh((4+sn+sensSn+extrasSn)+'. Committee Notes'),
     new D.Paragraph({spacing:{after:60},children:[new D.TextRun({text:'Recommendation:',bold:true,font:'Arial',size:20,color:BRAND})]}),
     new D.Paragraph({spacing:{after:400},border:{bottom:{style:D.BorderStyle.SINGLE,size:4,color:MGRAY}},children:[new D.TextRun({text:' ',font:'Arial',size:20})]}),
     new D.Paragraph({spacing:{after:60},children:[new D.TextRun({text:'Notes:',bold:true,font:'Arial',size:20,color:BRAND})]}),
@@ -5801,6 +6057,7 @@ function sw(id,el){
   if(id==='pricing')renderPricing();
   if(id==='demand')renderDemand();
   if(id==='sdamap')initSdaMap();
+  if(id==='propmap')initPropMap();
 }
 
 // =============================================================================
@@ -5956,6 +6213,246 @@ function renderSdaMap(){
       });
     }
   }
+}
+
+// =============================================================================
+// Property Map (screener properties as colour-coded pins)
+// Lazy-init on first tab open. Reuses the existing Maps JS loader and the
+// /api/geocode proxy. Geocoded lat/lng cached in localStorage so revisits
+// are instant.
+// =============================================================================
+var PMAP_GEO_KEY = 'sda_screener_geocode_cache_v1';
+var pmapInstance = null;
+var pmapMarkers = [];
+var pmapInfoWindow = null;
+var pmapInitialised = false;
+var pmapInitialising = false;
+var pmapGeoCache = null;
+var pmapGeocodingActive = false;
+var PMAP_GEOCODE_CAP = 150; // max uncached properties to geocode in one go
+
+function pmapLoadGeoCache(){
+  if (pmapGeoCache) return pmapGeoCache;
+  try {
+    var raw = localStorage.getItem(PMAP_GEO_KEY);
+    pmapGeoCache = raw ? JSON.parse(raw) : {};
+    if (typeof pmapGeoCache !== 'object' || !pmapGeoCache) pmapGeoCache = {};
+  } catch(ex) { pmapGeoCache = {}; }
+  return pmapGeoCache;
+}
+function pmapSaveGeoCache(){
+  try { localStorage.setItem(PMAP_GEO_KEY, JSON.stringify(pmapGeoCache || {})); } catch(ex){}
+}
+function pmapGetCoords(addr){
+  var c = pmapLoadGeoCache();
+  return c[addr] || null;
+}
+function pmapSetCoords(addr, coords){
+  var c = pmapLoadGeoCache();
+  c[addr] = coords;
+  pmapSaveGeoCache();
+}
+
+// Server-side geocode proxy. Returns { lat, lng } or null.
+function pmapGeocodeOne(addr){
+  return fetch('/api/geocode?address=' + encodeURIComponent(addr), {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data && typeof data.lat === 'number' && typeof data.lng === 'number') {
+        return { lat: data.lat, lng: data.lng };
+      }
+      return null;
+    })
+    .catch(function(){ return null; });
+}
+
+// Geocode an array of addresses with limited concurrency. Caches as we go.
+// Returns a Promise that resolves when all are done (or skipped).
+function pmapGeocodeMany(addrs, concurrency){
+  concurrency = concurrency || 4;
+  var i = 0, active = 0;
+  return new Promise(function(resolve){
+    if (!addrs.length) { resolve(); return; }
+    function next(){
+      if (i >= addrs.length && active === 0) { resolve(); return; }
+      while (active < concurrency && i < addrs.length) {
+        var addr = addrs[i++];
+        active++;
+        pmapGeocodeOne(addr).then(function(coords){
+          // Cache even nulls? No — leave nulls uncached so a later retry can succeed
+          // when e.g. address typo gets fixed or backend issue resolves.
+          if (coords) pmapSetCoords(addr, coords);
+          active--;
+          next();
+        });
+      }
+    }
+    next();
+  });
+}
+
+function initPropMap(){
+  // Re-render whenever the tab is opened — this picks up filter changes
+  if (pmapInitialised) {
+    renderPropMap();
+    return;
+  }
+  if (pmapInitialising) return;
+  pmapInitialising = true;
+  var emptyEl = document.getElementById('propmap-empty');
+  if (emptyEl) {
+    emptyEl.style.display = 'flex';
+    emptyEl.innerHTML = '<div style="font-weight:600;color:#374151">Loading map\u2026</div>';
+  }
+  loadGoogleMapsJS()
+    .then(function(){
+      // Centre roughly on Australia's east coast — bounds will fit pins after render
+      pmapInstance = new google.maps.Map(document.getElementById('propmap'), {
+        center: { lat: -33.8688, lng: 151.2093 },
+        zoom: 5,
+        mapTypeControl: true,
+        streetViewControl: false,
+        fullscreenControl: true
+      });
+      pmapInfoWindow = new google.maps.InfoWindow();
+      pmapInitialised = true;
+      pmapInitialising = false;
+      if (emptyEl) emptyEl.style.display = 'none';
+      renderPropMap();
+    })
+    .catch(function(err){
+      pmapInitialising = false;
+      if (emptyEl) {
+        emptyEl.innerHTML = '<div style="color:#A32D2D;font-weight:600">Map failed to load</div>'
+          + '<div style="font-size:11px;color:#6B7280">' + escHtml(err.message || 'Unknown error') + '</div>';
+      }
+    });
+}
+
+function renderPropMap(){
+  if (!pmapInitialised || !pmapInstance) return;
+  // Clear existing markers
+  pmapMarkers.forEach(function(m){ m.setMap(null); });
+  pmapMarkers = [];
+  if (pmapInfoWindow) pmapInfoWindow.close();
+
+  var tgt = getTgt();
+  var nearMissOn = !!document.getElementById('pmap-near-miss').checked;
+  // Use the currently filtered set — same as the table
+  var source = (typeof filt !== 'undefined' && Array.isArray(filt)) ? filt : props || [];
+  // Filter to what we'll actually pin: passes (always) + near-misses (if toggle on)
+  var passing = source.filter(function(pr){ return pr.bestRet >= tgt; });
+  var nearMiss = nearMissOn
+    ? source.filter(function(pr){ return pr.bestRet < tgt && pr.bestRet >= (tgt - 0.01); })
+    : [];
+  var toPin = passing.concat(nearMiss);
+
+  var countsEl = document.getElementById('pmap-counts');
+  if (!toPin.length) {
+    if (countsEl) countsEl.textContent = 'No properties match — adjust filters or load data';
+    return;
+  }
+
+  // Identify any addresses we don't yet have coords for
+  pmapLoadGeoCache();
+  var uncached = toPin.filter(function(pr){ return !pmapGetCoords(pr.addr); });
+
+  function drawPins(){
+    var bounds = new google.maps.LatLngBounds();
+    var drawn = 0, missing = 0;
+    toPin.forEach(function(pr){
+      var coords = pmapGetCoords(pr.addr);
+      if (!coords) { missing++; return; }
+      var isPass = pr.bestRet >= tgt;
+      var col = isPass ? '#0F6E56' : '#F59E0B';
+      var marker = new google.maps.Marker({
+        position: coords,
+        map: pmapInstance,
+        title: pr.addr,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: col,
+          fillOpacity: 0.85,
+          strokeColor: '#ffffff',
+          strokeWeight: 2,
+          scale: 9
+        }
+      });
+      marker.addListener('click', function(){
+        var bestModelLabel = pr.bestModel ? ({'2p':'2P House','3p':'3P House','dp':'Duplex'}[pr.bestModel] || pr.bestModel) : '\u2014';
+        var html = '<div style="font-family:Arial;min-width:220px;max-width:280px">'
+          + '<div style="font-weight:700;color:#185FA5;margin-bottom:4px">' + escHtml(pr.addr) + '</div>'
+          + '<div style="font-size:11px;color:#666;margin-bottom:6px">' + escHtml(pr.sa4 || '') + ' \u2022 ' + (pr.state||'').toUpperCase() + '</div>'
+          + '<div style="font-size:11px;line-height:1.6">'
+          +   '<div>Price: <b>$' + Math.round(pr.price).toLocaleString() + '</b></div>'
+          +   '<div>Land: <b>' + (pr.land>0 ? Math.round(pr.land)+' m\u00B2' : '\u2014') + '</b></div>'
+          +   '<div>Best model: <b>' + bestModelLabel + '</b></div>'
+          +   '<div>Unlevered return: <b style="color:' + col + '">' + (pr.bestRet*100).toFixed(2) + '%</b>'
+          +   (isPass ? '' : ' <span style="color:#BA7517;font-size:10px">(near miss)</span>') + '</div>'
+          + '</div>'
+          + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
+          + '<a href="javascript:void(0)" onclick="pmapJumpToProperty(' + pr.id + ')" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">Open full detail \u2192</a>'
+          + '</div></div>';
+        pmapInfoWindow.setContent(html);
+        pmapInfoWindow.open(pmapInstance, marker);
+      });
+      pmapMarkers.push(marker);
+      bounds.extend(coords);
+      drawn++;
+    });
+    // Fit to bounds (only if we drew at least one)
+    if (drawn > 0) {
+      pmapInstance.fitBounds(bounds);
+      // Don't over-zoom on a single pin
+      var listener = google.maps.event.addListenerOnce(pmapInstance, 'idle', function(){
+        if (pmapInstance.getZoom() > 13) pmapInstance.setZoom(13);
+      });
+    }
+    if (countsEl) {
+      var parts = [drawn + ' pin' + (drawn===1?'':'s')];
+      if (passing.length) parts.push(passing.length + ' passing');
+      if (nearMissOn && nearMiss.length) parts.push(nearMiss.length + ' near-miss');
+      if (missing) parts.push(missing + ' could not be geocoded');
+      countsEl.textContent = parts.join(' \u2022 ');
+    }
+  }
+
+  if (uncached.length === 0) {
+    drawPins();
+    return;
+  }
+  if (uncached.length > PMAP_GEOCODE_CAP) {
+    if (countsEl) countsEl.textContent = uncached.length + ' uncached addresses — too many to geocode at once. Tighten filters first.';
+    // Still draw whatever IS cached so user gets partial value
+    drawPins();
+    return;
+  }
+  if (pmapGeocodingActive) return; // avoid re-entrant calls
+  pmapGeocodingActive = true;
+  if (countsEl) countsEl.textContent = 'Geocoding ' + uncached.length + ' addresses\u2026';
+  pmapGeocodeMany(uncached.map(function(pr){ return pr.addr; }), 4)
+    .then(function(){
+      pmapGeocodingActive = false;
+      drawPins();
+    });
+}
+
+// Called from the info-window "Open full detail" link
+function pmapJumpToProperty(id){
+  // Switch back to Screener tab
+  var screenerTabBtn = document.querySelector('.tab[onclick*="screen"]');
+  if (screenerTabBtn) {
+    sw('screen', screenerTabBtn);
+  }
+  // Expand the property's detail row and scroll into view
+  setTimeout(function(){
+    var dtr = document.getElementById('dtr-' + id);
+    if (dtr && dtr.style.display !== 'table-row') {
+      try { toggleD(id); } catch(ex){}
+    }
+    var tgtEl = document.getElementById('dtr-' + id) || document.querySelector('tr[onclick*="toggleD(' + id + ')"]');
+    if (tgtEl && tgtEl.scrollIntoView) tgtEl.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 50);
 }
 
 // Tiny HTML-escape helper for use in info windows

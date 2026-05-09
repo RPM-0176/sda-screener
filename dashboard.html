@@ -176,7 +176,7 @@ tr.dr:hover td{background:#fafaf9}
     <div class="fg"><label>IRR &#8805;18% only</label><select id="firr" onchange="applyF()"><option value="">All</option><option value="yes">Yes</option></select></div>
     <div class="fg"><label>SDA category</label><select id="fcat" onchange="recalcAll()">
   <optgroup label="Single category">
-    <option value="best">Best available</option>
+    <option value="best">Highest rate (theoretical)</option>
     <option value="il" selected>IL (Improved Liveability)</option>
     <option value="fa">FA (Fully Accessible)</option>
     <option value="hps">HPS (High Physical Support)</option>
@@ -4159,6 +4159,49 @@ function calcModel(price,land,sda,model,p,catOverride,extrasTotal){
   var irr=calcIRR(net,total,p),maxL=calcMaxLand(net,build,cons,p);
   return{model:model,gross:gross,ongoing:ongoing,net:net,total:total,landCost:landCost,build:build,cons:cons,ret:ret,levRet:levRet,poc:poc,irr:irr,maxL:maxL,pts:pts,dw:dw,sdaRate:sdaRate};
 }
+
+// Sensitivity helper — recomputes return metrics for a single model under
+// scenario overrides. Mirrors calcModel's formulas exactly so a 'base' run
+// (no overrides) returns the same numbers as the model card.
+//   overrides supports any of:
+//     irBump          — add absolute %pts to interest rate (e.g. 0.02 = +2%)
+//     buildMult       — multiply build cost (e.g. 1.10 = +10% overrun)
+//     rateMult        — multiply SDA rate (e.g. 0.90 = -10% rate cut)
+//     vacancyPct      — fraction of gross income lost to vacancy (e.g. 0.10)
+function calcSensitivity(price, land, sda, model, p, catOverride, extrasTotal, overrides) {
+  if (!sda) return null;
+  overrides = overrides || {};
+  var rrc=SH.rrc, sdaRate=0, build=0, cons=0, pts=0, dw=1;
+  if (model==='2p') {
+    sdaRate=getCatRate(sda,model,catOverride);
+    if (sdaRate<=0||(land>0&&land<SH.sl)) return null;
+    build=p.b2p*(1+p.cg); cons=p.c2p; pts=2;
+  } else if (model==='3p') {
+    sdaRate=getCatRate(sda,model,catOverride);
+    if (sdaRate<=0||(land>0&&land<SH.sl)) return null;
+    build=p.b3p*(1+p.cg); cons=p.c3p; pts=3;
+  } else {
+    if (land>0&&land<SH.dl) return null;
+    sdaRate=getCatRate(sda,'dp',catOverride);
+    if (sdaRate<=0) return null;
+    build=p.bdp*2*(1+p.cg); cons=p.cdp; pts=4; dw=2;
+  }
+  // Apply overrides
+  if (typeof overrides.rateMult === 'number')  sdaRate = sdaRate * overrides.rateMult;
+  if (typeof overrides.buildMult === 'number') build   = build   * overrides.buildMult;
+  var gross=(sdaRate+rrc)*pts;
+  if (typeof overrides.vacancyPct === 'number') gross = gross * (1 - overrides.vacancyPct);
+  var ongoing=gross*SH.sdaMgr+gross*SH.clean+SH.fire*dw+SH.ins*dw+SH.rates*dw+SH.maint*dw;
+  var net=gross-ongoing;
+  var landCost=price+price*p.stamp+p.leg+p.pexa+price*p.ba+p.val;
+  var total=landCost+build+cons+(extrasTotal||0);
+  var ret=total>0?net/total:0;
+  var lvr=getLvr(), ir=getIr();
+  if (typeof overrides.irBump === 'number') ir = ir + overrides.irBump;
+  var equity=total*(1-lvr);
+  var levRet=equity>0?(net-total*lvr*ir)/equity:0;
+  return { net:net, total:total, ret:ret, levRet:levRet };
+}
 function calcProp(prop){
   var st=(prop.state||'nsw').toLowerCase(),p=PARAMS[st]||PARAMS.nsw;
   var sa4=prop.sa4||'';
@@ -4529,7 +4572,7 @@ function buildDetail(pr,tgt){
   var curPropCat = propCat[pr.id] || '';
   var mixOpts = [
     ['','Use global setting'],
-    ['best','Best available'],
+    ['best','Highest rate (theoretical)'],
     ['il','IL only'],['fa','FA only'],['hps','HPS only'],
     ['il_il','2P: IL + IL'],['il_fa','2P: IL + FA'],['il_hps','2P: IL + HPS'],
     ['fa_fa','2P: FA + FA'],['fa_hps','2P: FA + HPS'],['hps_hps','2P: HPS + HPS'],
@@ -4619,7 +4662,95 @@ function buildDetail(pr,tgt){
     + '<div style="font-size:11px;color:#9CA3AF;padding:6px 0">Loading nearby SDA data&hellip;</div>'
     + '</div>';
 
-  return '<div class="dinn">'+cards+sdaCard+medCard+sa3Card+proxCard+nearbySdaCard+toolsCard+expBtn+'</div>';
+  // Sensitivity card — shows how unlevered & levered returns hold up under
+  // common stress scenarios (rates rise, build overrun, SDA rate cut, vacancy).
+  // Matches calcModel formulas exactly so 'base' row equals what's on the
+  // model cards above. Read-only — does not mutate any sliders or settings.
+  var sensitivityCard = (function(){
+    if (!sda || !models.length) return '';
+    var MN_local = {'2p':'2P House','3p':'3P House','dp':'Duplex'};
+    var MC_local = {'2p':'b2p','3p':'b3p','dp':'bdp'};
+    // Scenarios — each name + override object passed to calcSensitivity
+    var scenarios = [
+      { name:'Base case',          desc:'Current assumptions',           overrides:{} },
+      { name:'Interest +2%',       desc:'Rates rise 2 percentage points',overrides:{ irBump:0.02 } },
+      { name:'Build cost +10%',    desc:'Overrun beyond contingency',    overrides:{ buildMult:1.10 } },
+      { name:'SDA rate \u221210%', desc:'Lower category attracted',      overrides:{ rateMult:0.90 } },
+      { name:'Vacancy 10%',        desc:'One room empty 10% of the time',overrides:{ vacancyPct:0.10 } }
+    ];
+    // Precompute results: scenarios x models. Use livePrice & propCatVal so
+    // the baseline matches the detail cards' actual displayed numbers.
+    var results = scenarios.map(function(sc){
+      return {
+        name: sc.name,
+        desc: sc.desc,
+        models: ['2p','3p','dp'].map(function(mc){
+          return calcSensitivity(livePrice, pr.land, sda, mc, p, propCatVal, 0, sc.overrides);
+        })
+      };
+    });
+    // Build header — model badges + a marker col
+    var modelHeaderCells = ['2p','3p','dp'].map(function(mc){
+      var has = models.some(function(m){return m.model===mc;});
+      var cls = has ? MC_local[mc] : '';
+      var op = has ? '' : 'opacity:0.4';
+      return '<th style="padding:6px 8px;background:#fafaf9;border-bottom:1px solid #e0e0e0;text-align:center;font-size:10px;'+op+'">'
+        + (has ? '<span class="badge '+cls+'" style="font-size:9px">'+MN_local[mc]+'</span>' : '<span style="color:#9CA3AF;font-size:10px">'+MN_local[mc]+'</span>')
+        + '</th>';
+    }).join('');
+    // Build rows — for each scenario, show unlevered % then levered % stacked
+    var rowsHtml = results.map(function(row, rowIdx){
+      var isBase = rowIdx === 0;
+      var rowBg  = isBase ? 'background:#f0faf5' : '';
+      var cells = row.models.map(function(s, mIdx){
+        if (!s) return '<td style="padding:6px 8px;border-bottom:1px solid #f0f0ee;text-align:center;color:#9CA3AF;font-size:10px">\u2014</td>';
+        var ok    = s.ret >= tgt;
+        var lvOk  = s.levRet >= tgt;
+        var retCol = ok ? '#0F6E56' : (s.ret > 0 ? '#BA7517' : '#A32D2D');
+        var lvCol  = lvOk ? '#0F6E56' : (s.levRet > 0 ? '#BA7517' : '#A32D2D');
+        // Show delta vs base (skip on base row)
+        var deltaStr = '';
+        if (!isBase) {
+          var baseS = results[0].models[mIdx];
+          if (baseS) {
+            var d = (s.ret - baseS.ret) * 100;
+            var dCol = d >= 0 ? '#0F6E56' : '#A32D2D';
+            var dSign = d >= 0 ? '+' : '';
+            deltaStr = '<div style="font-size:9px;color:'+dCol+';font-weight:600;margin-top:2px">'+dSign+d.toFixed(2)+'pp</div>';
+          }
+        }
+        return '<td style="padding:6px 8px;border-bottom:1px solid #f0f0ee;text-align:center">'
+          + '<div style="font-size:11px;font-weight:700;color:'+retCol+'">'+(s.ret*100).toFixed(2)+'%</div>'
+          + '<div style="font-size:9px;color:#666;margin-top:1px">lev: <span style="color:'+lvCol+';font-weight:600">'+(s.levRet*100).toFixed(2)+'%</span></div>'
+          + deltaStr
+          + '</td>';
+      }).join('');
+      return '<tr style="'+rowBg+'">'
+        + '<td style="padding:6px 8px;border-bottom:1px solid #f0f0ee;font-size:11px">'
+        +   '<div style="font-weight:700;color:#1a1a1a">'+row.name+'</div>'
+        +   '<div style="font-size:9px;color:#9CA3AF;margin-top:1px">'+row.desc+'</div>'
+        + '</td>'
+        + cells
+        + '</tr>';
+    }).join('');
+    var legend = '<div style="font-size:10px;color:#888;margin-top:8px;border-top:1px solid #eee;padding-top:6px">'
+      + 'Big number = unlevered &middot; Small &laquo;lev&raquo; = levered (at current LVR &amp; rate) &middot; '
+      + 'Coloured pp delta = change vs base &middot; Green = passes '+(tgt*100).toFixed(1)+'% target'
+      + '</div>';
+    return '<div class="dcard" style="grid-column:span 2">'
+      + '<h4>Sensitivity analysis &mdash; how returns hold up under stress</h4>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+      +   '<thead><tr>'
+      +     '<th style="padding:6px 8px;background:#fafaf9;border-bottom:1px solid #e0e0e0;text-align:left;font-size:10px;color:#666">Scenario</th>'
+      +     modelHeaderCells
+      +   '</tr></thead>'
+      +   '<tbody>'+rowsHtml+'</tbody>'
+      + '</table>'
+      + legend
+      + '</div>';
+  })();
+
+  return '<div class="dinn">'+cards+sdaCard+medCard+sa3Card+sensitivityCard+proxCard+nearbySdaCard+toolsCard+expBtn+'</div>';
 }
 
 // Commit dimensions when user presses Enter or clicks Update.
@@ -6316,9 +6447,9 @@ function runLookup(){
     var modelCat=lkMixState[m]||'best';
     var catDesc=getCatLabel(modelCat);
     // Build mix options for this model
-    var mixOpts2p='<option value="best">Best</option><option value="hps_hps">HPS+HPS</option><option value="fa_hps">FA+HPS</option><option value="il_hps">IL+HPS</option><option value="fa_fa">FA+FA</option><option value="il_fa">IL+FA</option><option value="il_il">IL+IL</option>';
-    var mixOpts3p='<option value="best">Best</option><option value="hps_hps_hps">HPS+HPS+HPS</option><option value="hps_hps_fa">HPS+HPS+FA</option><option value="hps_hps_il">HPS+HPS+IL</option><option value="hps_fa_fa">HPS+FA+FA</option><option value="fa_fa_fa">FA+FA+FA</option><option value="il_il_il">IL+IL+IL</option>';
-    var mixOptsDp='<option value="best">Best</option><option value="dp_hps_hps_hps_hps">4x HPS</option><option value="dp_il_fa_hps_hps">IL+FA+HPS+HPS</option><option value="dp_il_il_fa_fa">2xIL+2xFA</option><option value="dp_fa_fa_fa_fa">4x FA</option><option value="dp_il_il_il_il">4x IL</option>';
+    var mixOpts2p='<option value="best">Highest rate</option><option value="hps_hps">HPS+HPS</option><option value="fa_hps">FA+HPS</option><option value="il_hps">IL+HPS</option><option value="fa_fa">FA+FA</option><option value="il_fa">IL+FA</option><option value="il_il">IL+IL</option>';
+    var mixOpts3p='<option value="best">Highest rate</option><option value="hps_hps_hps">HPS+HPS+HPS</option><option value="hps_hps_fa">HPS+HPS+FA</option><option value="hps_hps_il">HPS+HPS+IL</option><option value="hps_fa_fa">HPS+FA+FA</option><option value="fa_fa_fa">FA+FA+FA</option><option value="il_il_il">IL+IL+IL</option>';
+    var mixOptsDp='<option value="best">Highest rate</option><option value="dp_hps_hps_hps_hps">4x HPS</option><option value="dp_il_fa_hps_hps">IL+FA+HPS+HPS</option><option value="dp_il_il_fa_fa">2xIL+2xFA</option><option value="dp_fa_fa_fa_fa">4x FA</option><option value="dp_il_il_il_il">4x IL</option>';
     var mixOpts=m==='3p'?mixOpts3p:m==='dp'?mixOptsDp:mixOpts2p;
     // Mark the user's current selection so the dropdown shows it after innerHTML replaces the element.
     // Replace value="X"> with value="X" selected> for the matching option only.
@@ -6349,7 +6480,7 @@ function refreshCard(model){
 function getCatLabel(cat){
   if(cat===undefined) cat=getCat(); // no-arg call from main dashboard
   var labels={
-    'best':'Best available','hps':'HPS','fa':'FA','il':'IL',
+    'best':'Highest rate (theoretical)','hps':'HPS','fa':'FA','il':'IL',
     'hps_hps':'HPS+HPS','fa_hps':'FA+HPS','il_hps':'IL+HPS',
     'fa_fa':'FA+FA','il_fa':'IL+FA','il_il':'IL+IL',
     'hps_hps_hps':'3P HPS+HPS+HPS','hps_hps_fa':'3P HPS+HPS+FA',

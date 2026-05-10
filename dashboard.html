@@ -6583,11 +6583,12 @@ function renderSdaMap(){
   var enabledLayers = {
     radius:    (document.getElementById('msl-radius') || {}).checked,
     existing:  (document.getElementById('msl-existing') || {}).checked,
+    ghomes:    (document.getElementById('msl-ghomes') || {}).checked,
     permitted: (document.getElementById('msl-permitted') || {}).checked
   };
-  var layerColors = { radius: '#1e40af', existing: '#0F6E56', permitted: '#ea580c' };
+  var layerColors = { radius: '#1e40af', existing: '#0F6E56', ghomes: '#7C3AED', permitted: '#EAB308' };
 
-  var counts = { radius: 0, existing: 0, permitted: 0 };
+  var counts = { radius: 0, existing: 0, ghomes: 0, permitted: 0 };
   var bounds = new google.maps.LatLngBounds();
   var anyShown = false;
 

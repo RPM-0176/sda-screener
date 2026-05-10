@@ -5288,8 +5288,9 @@ function renderNearbySda(pr, data){
   if (!card) return;
   var radius = (data.radius || []).length;
   var existing = (data.existing || []).length;
+  var ghomes = (data.ghomes || []).length;
   var permitted = (data.permitted || []).length;
-  var total = radius + existing + permitted;
+  var total = radius + existing + ghomes + permitted;
 
   var html = '<h4>Nearby SDA properties (within 5km)</h4>';
 
@@ -5303,12 +5304,13 @@ function renderNearbySda(pr, data){
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">'
     + countChip('radius',    radius,    '#1e40af', pr.id)
     + countChip('existing',  existing,  '#0F6E56', pr.id)
-    + countChip('permitted', permitted, '#ea580c', pr.id)
+    + countChip('ghomes',    ghomes,    '#7C3AED', pr.id)
+    + countChip('permitted', permitted, '#EAB308', pr.id)
     + '</div>';
 
   // Expandable lists for each layer (hidden by default)
-  ['radius','existing','permitted'].forEach(function(layer){
-    var items = data[layer] || [];
+['radius','existing','ghomes','permitted'].forEach(function(layer){  
+  var items = data[layer] || [];
     if (items.length === 0) return;
     html += '<div id="nsda-list-' + pr.id + '-' + layer + '" style="display:none;margin:6px 0 10px;border-top:1px solid #eee;padding-top:8px">';
     html += '<div style="font-size:11px;font-weight:700;color:#666;margin-bottom:4px;text-transform:uppercase">'

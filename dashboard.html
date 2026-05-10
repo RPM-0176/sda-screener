@@ -5531,8 +5531,6 @@ toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(
 }
 
 function exportPDFCover(id,e){
-
-function exportPDFCover(id,e){
   if(e){e.preventDefault();e.stopPropagation();}
   id=typeof id==='string'?parseInt(id,10):id;
   var pr=props.find(function(p){return p.id==id;});if(!pr)return;

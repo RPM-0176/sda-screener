@@ -251,7 +251,10 @@ tr.dr:hover td{background:#fafaf9}
       <span class="lyrdot" style="background:#7C3AED"></span>Group homes <span id="lyr-ghomes-count" style="opacity:0.7"></span>
     </button>
     <button id="lyr-existing" class="lyrbtn" onclick="toggleLayer('existing')">
-      <span class="lyrdot" style="background:#EA580C"></span>Existing SDA <span id="lyr-existing-count" style="opacity:0.7"></span>
+      <span class="lyrdot" style="background:#0F6E56"></span>Existing SDA <span id="lyr-existing-count" style="opacity:0.7"></span>
+    </button>
+    <button id="lyr-permitted" class="lyrbtn" onclick="toggleLayer('permitted')">
+      <span class="lyrdot" style="background:#EAB308"></span>Permitted <span id="lyr-permitted-count" style="opacity:0.7"></span>
     </button>
     <span id="hmcounts" style="font-size:11px;color:#6B7280;margin-left:auto"></span>
   </div>
@@ -332,13 +335,9 @@ tr.dr:hover td{background:#fafaf9}
         <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0F6E56"></span>
         Existing
       </label>
-    <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
-        <input type="checkbox" id="msl-ghomes" checked onchange="renderSdaMap()">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7C3AED"></span>
-        Group Homes
-      </label>  <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer">
         <input type="checkbox" id="msl-permitted" checked onchange="renderSdaMap()">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#EAB308"></span>
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ea580c"></span>
         Permitted
       </label>
     </div>
@@ -5288,9 +5287,8 @@ function renderNearbySda(pr, data){
   if (!card) return;
   var radius = (data.radius || []).length;
   var existing = (data.existing || []).length;
-  var ghomes = (data.ghomes || []).length;
   var permitted = (data.permitted || []).length;
-  var total = radius + existing + ghomes + permitted;
+  var total = radius + existing + permitted;
 
   var html = '<h4>Nearby SDA properties (within 5km)</h4>';
 
@@ -5304,13 +5302,12 @@ function renderNearbySda(pr, data){
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 10px">'
     + countChip('radius',    radius,    '#1e40af', pr.id)
     + countChip('existing',  existing,  '#0F6E56', pr.id)
-    + countChip('ghomes',    ghomes,    '#7C3AED', pr.id)
-    + countChip('permitted', permitted, '#EAB308', pr.id)
+    + countChip('permitted', permitted, '#ea580c', pr.id)
     + '</div>';
 
   // Expandable lists for each layer (hidden by default)
-['radius','existing','ghomes','permitted'].forEach(function(layer){  
-  var items = data[layer] || [];
+  ['radius','existing','permitted'].forEach(function(layer){
+    var items = data[layer] || [];
     if (items.length === 0) return;
     html += '<div id="nsda-list-' + pr.id + '-' + layer + '" style="display:none;margin:6px 0 10px;border-top:1px solid #eee;padding-top:8px">';
     html += '<div style="font-size:11px;font-weight:700;color:#666;margin-bottom:4px;text-transform:uppercase">'
@@ -6589,12 +6586,11 @@ function renderSdaMap(){
   var enabledLayers = {
     radius:    (document.getElementById('msl-radius') || {}).checked,
     existing:  (document.getElementById('msl-existing') || {}).checked,
-    ghomes:    (document.getElementById('msl-ghomes') || {}).checked,
     permitted: (document.getElementById('msl-permitted') || {}).checked
   };
-  var layerColors = { radius: '#1e40af', existing: '#0F6E56', ghomes: '#7C3AED', permitted: '#EAB308' };
+  var layerColors = { radius: '#1e40af', existing: '#0F6E56', permitted: '#ea580c' };
 
-  var counts = { radius: 0, existing: 0, ghomes: 0, permitted: 0 };
+  var counts = { radius: 0, existing: 0, permitted: 0 };
   var bounds = new google.maps.LatLngBounds();
   var anyShown = false;
 
@@ -6643,8 +6639,7 @@ function renderSdaMap(){
     countsEl.innerHTML = 'Showing: '
       + '<strong style="color:#1e40af">'+counts.radius+'</strong> Radius | '
       + '<strong style="color:#0F6E56">'+counts.existing+'</strong> Existing | '
-      + '<strong style="color:#7C3AED">'+counts.ghomes+'</strong> Group Homes | '
-      + '<strong style="color:#EAB308">'+counts.permitted+'</strong> Permitted';
+      + '<strong style="color:#ea580c">'+counts.permitted+'</strong> Permitted';
   }
 
   // Auto-fit to visible markers (but don't over-zoom on a single pin)
@@ -7076,12 +7071,77 @@ var SA4_CENTROIDS = {
 // Layer toggle state persists to localStorage.
 // =============================================================================
 var LAYER_KEY = 'sda_screener_market_map_layers_v1';
-var marketMapLayers = { demand:true, radius:false, ghomes:false, existing:false };
+var marketMapLayers = { demand:true, radius:false, ghomes:false, existing:false, permitted:false };
 
 // Marker collections per layer — kept separate so we can show/hide cleanly
 var radiusMarkers = [];
 var ghomesMarkers = [];
 var existingMarkers = [];
+var permittedMarkers = [];
+
+// Cache of /api/sda-market response — fetched once on first Market Map open,
+// refreshed if the user reopens after a long interval. Replaces the baked-in
+// JS arrays (RADIUS_PIPELINE / GROUP_HOMES / EXISTING_SDA).
+var marketMapData = null;       // { radius:[...], ghomes:[...], existing:[...], permitted:[...] }
+var marketMapDataFetching = false;
+var marketMapDataFetchedAt = 0;
+var MARKET_MAP_DATA_TTL_MS = 5 * 60 * 1000; // 5 min — fresh enough for an admin upload to show up
+
+// Normalise an API row to the shape the existing renderers already expect.
+// Input (from /api/sda-market):
+//   {address, suburb, state, postcode, area_m2, frontage_m, planning_zones, notes, lat, lng, layer}
+// Output:
+//   {addr, suburb, state, pc, area, frontage, zone, notes, lat, lng, dwelling}
+function normaliseMarketRow(r){
+  return {
+    addr: r.address || '',
+    suburb: r.suburb || '',
+    state: (r.state || '').toLowerCase(),
+    pc: r.postcode || '',
+    area: r.area_m2 || 0,
+    frontage: r.frontage_m || 0,
+    zone: r.planning_zones || '',
+    notes: r.notes || '',
+    lat: r.lat,
+    lng: r.lng,
+    // Radius: notes typically contains "Dwelling: 2 P House" — extract for the info window
+    dwelling: (function(){
+      var m = (r.notes || '').match(/Dwelling:\s*([^\n]+)/i);
+      return m ? m[1].trim() : '';
+    })()
+  };
+}
+
+// Fetch all market pins from the database and group by layer.
+// Returns a Promise that resolves when the data is in marketMapData.
+function fetchMarketMapData(force){
+  if (marketMapDataFetching) return Promise.resolve(marketMapData);
+  if (!force && marketMapData && (Date.now() - marketMapDataFetchedAt) < MARKET_MAP_DATA_TTL_MS) {
+    return Promise.resolve(marketMapData);
+  }
+  marketMapDataFetching = true;
+  return fetch('/api/sda-market', { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(rows){
+      var grouped = { radius: [], ghomes: [], existing: [], permitted: [] };
+      if (Array.isArray(rows)) {
+        rows.forEach(function(row){
+          if (row.lat == null || row.lng == null) return;
+          var layer = row.layer;
+          if (grouped[layer]) grouped[layer].push(normaliseMarketRow(row));
+        });
+      }
+      marketMapData = grouped;
+      marketMapDataFetchedAt = Date.now();
+      marketMapDataFetching = false;
+      return marketMapData;
+    })
+    .catch(function(err){
+      marketMapDataFetching = false;
+      console.warn('Market Map: failed to fetch /api/sda-market —', err);
+      return marketMapData; // may be null — renderers handle gracefully
+    });
+}
 
 function loadLayerState(){
   try {
@@ -7089,7 +7149,7 @@ function loadLayerState(){
     if (raw) {
       var v = JSON.parse(raw);
       if (v && typeof v === 'object') {
-        ['demand','radius','ghomes','existing'].forEach(function(k){
+        ['demand','radius','ghomes','existing','permitted'].forEach(function(k){
           if (typeof v[k] === 'boolean') marketMapLayers[k] = v[k];
         });
       }
@@ -7100,18 +7160,20 @@ function saveLayerState(){
   try { localStorage.setItem(LAYER_KEY, JSON.stringify(marketMapLayers)); } catch(ex){}
 }
 function syncLayerButtons(){
-  ['demand','radius','ghomes','existing'].forEach(function(k){
+  ['demand','radius','ghomes','existing','permitted'].forEach(function(k){
     var el = document.getElementById('lyr-'+k);
     if (el) el.classList.toggle('lyrbtn-on', !!marketMapLayers[k]);
   });
 }
 // Populate the small count after each layer's button label so the team can see
-// how many records are loaded across all states. Re-run if datasets change.
+// how many records are loaded (across all states) from the database.
 function syncLayerCounts(){
+  var d = marketMapData || { radius:[], ghomes:[], existing:[], permitted:[] };
   var pairs = [
-    ['radius',  typeof RADIUS_PIPELINE !== 'undefined' ? RADIUS_PIPELINE.length : 0],
-    ['ghomes',  typeof GROUP_HOMES     !== 'undefined' ? GROUP_HOMES.length     : 0],
-    ['existing',typeof EXISTING_SDA    !== 'undefined' ? EXISTING_SDA.length    : 0]
+    ['radius',   d.radius.length],
+    ['ghomes',   d.ghomes.length],
+    ['existing', d.existing.length],
+    ['permitted',d.permitted.length]
   ];
   pairs.forEach(function(p){
     var el = document.getElementById('lyr-'+p[0]+'-count');
@@ -7129,7 +7191,12 @@ function toggleLayer(name){
 function initMarketMap(){
   loadLayerState();
   syncLayerButtons();
-  syncLayerCounts();
+  // Kick off the database fetch in parallel with the map JS load.
+  // syncLayerCounts() runs again once the fetch completes.
+  fetchMarketMapData().then(function(){
+    syncLayerCounts();
+    if (hmInitialised) renderAllLayers();
+  });
   // Reuse the existing heatmap init for map+infowindow setup. It calls
   // renderHeatmap() at the end which we don't want; we override below.
   if (hmInitialised) {
@@ -7186,10 +7253,12 @@ function renderAllLayers(){
   }
   // 2. Radius pipeline
   renderRadiusLayer();
-  // 3. Group homes (VIC)
+  // 3. Group homes
   renderGhomesLayer();
-  // 4. Existing SDA (NSW)
+  // 4. Existing SDA
   renderExistingLayer();
+  // 5. Permitted / approved
+  renderPermittedLayer();
   // Combined counter line (bottom-right of toggle bar)
   updateLayerCounts();
 }
@@ -7202,53 +7271,22 @@ function updateLayerCounts(){
   if (marketMapLayers.radius) parts.push(radiusMarkers.length + ' Radius');
   if (marketMapLayers.ghomes) parts.push(ghomesMarkers.length + ' group home');
   if (marketMapLayers.existing) parts.push(existingMarkers.length + ' existing SDA');
+  if (marketMapLayers.permitted) parts.push(permittedMarkers.length + ' permitted');
   el.textContent = parts.length ? parts.join(' \u2022 ') : 'No layers active';
 }
 
 // === RADIUS PIPELINE LAYER ================================================
-// Records have address but no coords — uses geocode cache lazily on first draw.
+// Reads from marketMapData.radius (fetched from /api/sda-market). Records
+// already have lat/lng from the database — no geocoding needed.
 function renderRadiusLayer(){
   radiusMarkers.forEach(function(m){ m.setMap(null); });
   radiusMarkers = [];
   if (!marketMapLayers.radius) return;
-  if (typeof RADIUS_PIPELINE === 'undefined') return;
-  // Show all Radius dwellings regardless of state filter — zoom to focus.
-  var src = RADIUS_PIPELINE.slice();
-  var uncached = [];
-  src.forEach(function(r){
-    var coords = hmGetCoords(r.addr);
-    if (coords) {
-      drawRadiusPin(r, coords);
-    } else {
-      uncached.push(r);
-    }
+  if (!marketMapData || !marketMapData.radius) return;
+  marketMapData.radius.forEach(function(r){
+    if (r.lat == null || r.lng == null) return;
+    drawRadiusPin(r, { lat: r.lat, lng: r.lng });
   });
-  // Geocode missing addresses in the background (capped at 80 per call to be safe)
-  if (uncached.length && !window._radiusGeocoding) {
-    window._radiusGeocoding = true;
-    var batch = uncached.slice(0, 80);
-    var i = 0, active = 0, done = 0;
-    function next(){
-      if (i >= batch.length && active === 0) {
-        window._radiusGeocoding = false;
-        if (marketMapLayers.radius) renderRadiusLayer(); // redraw with new coords
-        return;
-      }
-      while (active < 4 && i < batch.length) {
-        var r = batch[i++];
-        active++;
-        hmGeocodeOne(r.addr).then((function(rec){
-          return function(c){
-            if (c) hmSetCoords(rec.addr, c);
-            done++;
-            active--;
-            next();
-          };
-        })(r));
-      }
-    }
-    next();
-  }
 }
 function drawRadiusPin(r, coords){
   var marker = new google.maps.Marker({
@@ -7285,14 +7323,15 @@ function drawRadiusPin(r, coords){
 }
 
 // === GROUP HOMES LAYER ====================================================
-// Coordinates are baked into each record. Layer always shows all records
-// regardless of the state filter (use map zoom to focus on a region).
+// Reads from marketMapData.ghomes (fetched from /api/sda-market).
+// Layer always shows all records regardless of the state filter.
 function renderGhomesLayer(){
   ghomesMarkers.forEach(function(m){ m.setMap(null); });
   ghomesMarkers = [];
   if (!marketMapLayers.ghomes) return;
-  if (typeof GROUP_HOMES === 'undefined') return;
-  GROUP_HOMES.forEach(function(g){
+  if (!marketMapData || !marketMapData.ghomes) return;
+  marketMapData.ghomes.forEach(function(g){
+    if (g.lat == null || g.lng == null) return;
     var marker = new google.maps.Marker({
       position: { lat: g.lat, lng: g.lng },
       map: hmInstance,
@@ -7329,21 +7368,23 @@ function renderGhomesLayer(){
 }
 
 // === EXISTING SDA LAYER ===================================================
-// Direct competing supply — already-filled SDA dwellings. Layer always shows
-// all records regardless of the state filter (use map zoom to focus).
+// Reads from marketMapData.existing (fetched from /api/sda-market).
+// Direct competing supply — already-filled SDA dwellings. Always shows all
+// records regardless of state filter.
 function renderExistingLayer(){
   existingMarkers.forEach(function(m){ m.setMap(null); });
   existingMarkers = [];
   if (!marketMapLayers.existing) return;
-  if (typeof EXISTING_SDA === 'undefined') return;
-  EXISTING_SDA.forEach(function(e){
+  if (!marketMapData || !marketMapData.existing) return;
+  marketMapData.existing.forEach(function(e){
+    if (e.lat == null || e.lng == null) return;
     var marker = new google.maps.Marker({
       position: { lat: e.lat, lng: e.lng },
       map: hmInstance,
       title: 'Existing SDA — '+e.addr,
       icon: {
         path: google.maps.SymbolPath.CIRCLE,
-        fillColor: '#EA580C',
+        fillColor: '#0F6E56',
         fillOpacity: 0.85,
         strokeColor: '#ffffff',
         strokeWeight: 1.5,
@@ -7353,7 +7394,7 @@ function renderExistingLayer(){
     marker.addListener('click', function(){
       var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
         + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
-        +   '<span style="display:inline-block;padding:2px 6px;background:#EA580C;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">EXISTING SDA'+(e.state?' ('+e.state.toUpperCase()+')':'')+'</span>'
+        +   '<span style="display:inline-block;padding:2px 6px;background:#0F6E56;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">EXISTING SDA'+(e.state?' ('+e.state.toUpperCase()+')':'')+'</span>'
         + '</div>'
         + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(e.addr)+'</div>'
         + '<div style="font-size:11px;color:#A32D2D;font-style:italic;margin-bottom:6px">Filled \u2014 direct competing SDA supply</div>'
@@ -7370,6 +7411,52 @@ function renderExistingLayer(){
       hmInfoWindow.open(hmInstance, marker);
     });
     existingMarkers.push(marker);
+  });
+}
+
+// === PERMITTED / APPROVED LAYER ===========================================
+// Reads from marketMapData.permitted (fetched from /api/sda-market).
+// Future supply — SDA approved but not yet built. Yellow pins.
+function renderPermittedLayer(){
+  permittedMarkers.forEach(function(m){ m.setMap(null); });
+  permittedMarkers = [];
+  if (!marketMapLayers.permitted) return;
+  if (!marketMapData || !marketMapData.permitted) return;
+  marketMapData.permitted.forEach(function(p){
+    if (p.lat == null || p.lng == null) return;
+    var marker = new google.maps.Marker({
+      position: { lat: p.lat, lng: p.lng },
+      map: hmInstance,
+      title: 'Permitted — '+p.addr,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: '#EAB308',
+        fillOpacity: 0.85,
+        strokeColor: '#ffffff',
+        strokeWeight: 1.5,
+        scale: 7
+      }
+    });
+    marker.addListener('click', function(){
+      var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+        +   '<span style="display:inline-block;padding:2px 6px;background:#EAB308;color:#1a1a1a;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">PERMITTED'+(p.state?' ('+p.state.toUpperCase()+')':'')+'</span>'
+        + '</div>'
+        + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(p.addr)+'</div>'
+        + '<div style="font-size:11px;color:#854d0e;font-style:italic;margin-bottom:6px">Approved \u2014 future SDA supply pipeline</div>'
+        + '<div style="font-size:11px;line-height:1.6">'
+        +   '<div>Suburb: <b>'+escHtml(p.suburb||'\u2014')+'</b> ('+(p.pc||'')+')</div>'
+        +   '<div>Land: <b>'+(p.area?Math.round(p.area)+' m\u00B2':'\u2014')+'</b></div>'
+        +   '<div>Frontage: <b>'+(p.frontage?p.frontage.toFixed(1)+' m':'\u2014')+'</b></div>'
+        +   '<div>Zone: <b>'+escHtml(p.zone||'\u2014')+'</b></div>'
+        + '</div>'
+        + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
+        +   '<a href="https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(p.addr)+'" target="_blank" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">View on Google Maps \u2197</a>'
+        + '</div></div>';
+      hmInfoWindow.setContent(html);
+      hmInfoWindow.open(hmInstance, marker);
+    });
+    permittedMarkers.push(marker);
   });
 }
 

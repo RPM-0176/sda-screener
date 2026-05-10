@@ -7057,8 +7057,11 @@ function renderHeatmap(){
       bounds.extend(s.centroid);
       drawn++;
     });
-    if (drawn > 0) {
+    // Auto-fit only when filters change. Layer toggles preserve the view.
+    var hmFitKey = ((document.getElementById('hmst')||{}).value||'') + '|' + ((document.getElementById('hmdem')||{}).value||'');
+    if (drawn > 0 && hmInstance.__lastFitKey !== hmFitKey) {
       hmInstance.fitBounds(bounds);
+      hmInstance.__lastFitKey = hmFitKey;
       google.maps.event.addListenerOnce(hmInstance, 'idle', function(){
         if (hmInstance.getZoom() > 9) hmInstance.setZoom(9);
       });

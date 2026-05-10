@@ -54,6 +54,12 @@ tr.dr{cursor:pointer}
 tr.dr:hover td{background:#fafaf9}
 .badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px}
 .bp{background:#EAF3DE;color:#27500A}.bf{background:#FCEBEB;color:#791F1F}.bm{background:#F0F0F0;color:#444}
+/* Layer toggle buttons on Market Map tab */
+.lyrbtn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;padding:6px 12px;border:1px solid #D1D5DB;border-radius:6px;background:#fff;color:#6B7280;cursor:pointer;transition:all .15s;font-family:Arial}
+.lyrbtn:hover{border-color:#9CA3AF;color:#1a1a1a}
+.lyrbtn-on{background:#1F2937;color:#fff;border-color:#1F2937}
+.lyrbtn-on:hover{background:#111827;border-color:#111827;color:#fff}
+.lyrdot{display:inline-block;width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .bvic{background:#E1F5EE;color:#085041}.bnsw{background:#E6F1FB;color:#0C447C}.bqld{background:#FAEEDA;color:#633806}
 .b2p{background:#E6F1FB;color:#0C447C}.b3p{background:#E1F5EE;color:#085041}.bdp{background:#FAEEDA;color:#633806}
 .dtr{display:none;background:#fafaf9}
@@ -158,7 +164,7 @@ tr.dr:hover td{background:#fafaf9}
 
 <div class="tabs">
   <button class="tab on" onclick="sw('screen',this)">Screener</button>
-  <button class="tab" onclick="sw('propmap',this)">Demand Heatmap</button>
+  <button class="tab" onclick="sw('propmap',this)">Market Map</button>
   <button class="tab" onclick="sw('pricing',this)">SDA Pricing</button>
   <button class="tab" onclick="sw('demand',this)">SA3 Demand</button>
   <button class="tab" onclick="sw('sdamap',this)">SDA Map</button>
@@ -232,37 +238,52 @@ tr.dr:hover td{background:#fafaf9}
 </div>
 
 <div id="panel-propmap" class="panel">
+  <!-- Layer toggle bar -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;padding:10px 12px;background:#F9FAFB;border-radius:8px">
+    <span style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.04em;margin-right:4px">Layers:</span>
+    <button id="lyr-demand" class="lyrbtn lyrbtn-on" onclick="toggleLayer('demand')">
+      <span class="lyrdot" style="background:#0F6E56"></span>Demand heatmap
+    </button>
+    <button id="lyr-radius" class="lyrbtn" onclick="toggleLayer('radius')">
+      <span class="lyrdot" style="background:#002060"></span>Radius pipeline (52)
+    </button>
+    <button id="lyr-ghomes" class="lyrbtn" onclick="toggleLayer('ghomes')">
+      <span class="lyrdot" style="background:#7C3AED"></span>Group homes &mdash; VIC (100)
+    </button>
+    <button id="lyr-existing" class="lyrbtn" onclick="toggleLayer('existing')">
+      <span class="lyrdot" style="background:#EA580C"></span>Existing SDA &mdash; NSW (127)
+    </button>
+    <span id="hmcounts" style="font-size:11px;color:#6B7280;margin-left:auto"></span>
+  </div>
+  <!-- Filters row -->
   <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));align-items:end">
-    <div class="fg"><label>State</label>
-      <select id="hmst" onchange="renderHeatmap()">
+    <div class="fg"><label>State filter</label>
+      <select id="hmst" onchange="renderAllLayers()">
         <option value="">All states</option>
         <option value="vic">VIC</option>
         <option value="nsw">NSW</option>
         <option value="qld">QLD</option>
       </select>
     </div>
-    <div class="fg"><label>Min demand (SDA participants)</label>
-      <input type="number" id="hmdem" placeholder="e.g. 50" oninput="renderHeatmap()" min="0">
+    <div class="fg"><label>Min demand (heatmap only)</label>
+      <input type="number" id="hmdem" placeholder="e.g. 50" oninput="renderAllLayers()" min="0">
     </div>
     <div class="fg" style="display:flex;flex-direction:column;gap:4px;font-size:10px;color:#6B7280">
-      <span style="font-weight:600;color:#374151">Circle colour</span>
+      <span style="font-weight:600;color:#374151">Heatmap colour</span>
       <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0F6E56"></span>Undersupply</span>
         <span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9CA3AF"></span>Balanced</span>
         <span style="display:flex;align-items:center;gap:3px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#A32D2D"></span>Oversupply</span>
       </span>
     </div>
-    <div class="fg" style="text-align:right">
-      <span id="hmcounts" style="font-size:11px;color:#6B7280"></span>
-    </div>
   </div>
-  <div id="propmap" style="width:100%;height:640px;border-radius:8px;overflow:hidden;background:#e5e7eb;position:relative">
+  <div id="propmap" style="width:100%;height:640px;border-radius:8px;overflow:hidden;background:#e5e7eb;position:relative;margin-top:10px">
     <div id="propmap-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:13px;color:#6B7280;padding:20px;flex-direction:column;gap:6px">
-      <div style="font-weight:600;color:#374151">Heatmap loads when this tab is opened</div>
-      <div>Each circle shows an SA4 area, coloured by under/oversupply<br>(green = undersupply, red = oversupply, grey = balanced).<br>Size scales with demand. Number badge shows properties matching your Screener filters.</div>
+      <div style="font-weight:600;color:#374151">Map loads when this tab is opened</div>
+      <div>Toggle layers above to overlay demand, your portfolio, group homes, and existing SDA.</div>
     </div>
   </div>
-  <p style="font-size:10px;color:#888;margin-top:8px">Click an SA4 area to filter the Screener to just those properties. Filters from the Screener tab also constrain which properties show in each badge.</p>
+  <p style="font-size:10px;color:#888;margin-top:8px">Demand heatmap circles are SA4 areas; click to filter Screener. Pinned dwellings have address, planning zone, and "View on Maps" link in their info windows.</p>
 </div>
 
 <div id="panel-pricing" class="panel">
@@ -3478,7 +3499,296 @@ var SA3D=[
   {sa3:'Townsville',sa4:'Townsville',st:'qld',inUse:122,elig:84,total:206,r1:73,r2:74,r3:38,r4:7,r5:2,r6:2,cap13:335},
   {sa3:'Whitsunday',sa4:'Mackay - Isaac - Whitsunday',st:'qld',inUse:4,elig:1,total:5,r1:0,r2:0,r3:0,r4:2,r5:0,r6:0,cap13:0},
   {sa3:'Wynnum - Manly',sa4:'Brisbane - East',st:'qld',inUse:41,elig:23,total:64,r1:37,r2:8,r3:5,r4:0,r5:0,r6:0,cap13:68},
-];var PARAMS={
+];
+
+// Radius Project Pipeline — owned/operated SDA dwellings (current as at upload)
+var RADIUS_PIPELINE=[
+  {name:'41 SEPARATION ST FAIRFIELD VIC 3078',addr:'41 Separation Street, Fairfield VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'41 A SEPARATION STREET FAIRFIELD VIC 3078',addr:'41 Separation Street, Fairfield VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'20 NAIRN AVENUE ASCOT VALE VIC 3032',addr:'20 Nairn Avenue, Ascot Vale VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'22 JAMES STREET ASCOT VALE VIC 3032',addr:'22 James Street, Ascot Vale VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'133 WILLSMERE RD KEW VIC',addr:'133 Willsmere Road, Kew VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'1A GRANDVIEW TERRACE  KEW VIC',addr:'1a Grandview Terrace, Kew VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'31 ARGYLL STREET SYDENHAM VIC',addr:'31 Argyll Street, Sydenham VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'31A ARGYLL STREET SYDENHAM VIC',addr:'31 Argyll Street, Sydenham VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'206 DAREBIN RD NORTHCOTE VIC',addr:'206 Darebin Road, Northcote VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'206A DAREBIN RD NORTHCOTE VIC',addr:'206 Darebin Road, Northcote VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'214 DUNDAS STREET THORNBURY VIC',addr:'214 Dundas Street, Thornbury VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'29 WHITE STREET COBURG',addr:'29 White Street, Coburg VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'38 SWIFT STREET THORNBURY VIC',addr:'38 Swift Street, Thornbury VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'38A SWIFT STREET THORNBURY VIC',addr:'38a Swift Street, Thornbury VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'20A WOODLANDS GROVE SAFETY BEACH VIC 3936',addr:'20 Woodlands Grove, Safety Beach VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'20B WOODLANDS GROVE SAFETY BEACH VIC 3936',addr:'20B WOODLANDS GROVE SAFETY BEACH VIC 3936',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'57 MONTVIEW COURT CORIO VIC',addr:'57 Montview Court, Corio VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'164 DISCOVERY DRIVE HELENSVALE QLD',addr:'164 Discovery Drive, Helensvale QLD, Australia',dwelling:'2 P House',type:'2P',state:'qld'},
+  {name:'164A DISCOVERY DRIVE HELENSVALE QLD',addr:'164 Discovery Drive, Helensvale QLD, Australia',dwelling:'2 P House',type:'2P',state:'qld'},
+  {name:'153 ROWANS ROAD MOORABBIN',addr:'153 Rowans Road, Moorabbin VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'21 BRUCE STREET COBURG',addr:'21 Bruce Street, Coburg VIC, Australia',dwelling:'3P House x 2',type:'3P',state:'vic'},
+  {name:'241-243 BEAUCHAMP ROAD MATRAVILLE NSW',addr:'241-243 Beauchamp Road, Matraville NSW, Australia',dwelling:'2 P House',type:'2P',state:'nsw'},
+  {name:'155 GRANGE ROAD FAIRFIELD',addr:'155 Grange Road, Fairfield VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'60 ROSEWARNE AVENUE CHELTENHAM',addr:'60 Rosewarne Avenue, Cheltenham VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'40 LINDA STREET COBURG',addr:'40 Linda Street, Coburg VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'11 MARILYN COURT BLACKBURN NORTH',addr:'11 Marilyn Court, Blackburn North VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'53 CHAPEL ROAD MORRABBIN',addr:'53 Chapel Road, Moorabbin VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'20 MATTHIESON STREET HIGHETT',addr:'20 Matthieson Street, Highett VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'13 CARRAMAR STREET MORNINGTON',addr:'13 Carramar Street, Mornington VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'24 VERMONT COURT BLACKBURN SOUTH',addr:'24 Vermont Court, Blackburn South VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'40 NORTHAM ROAD BENTLEIGH EAST',addr:'40 Northam Road, Bentleigh East VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'7 BRENTWOOD CRESCENT FRANKSTON',addr:'7 Brentwood Crescent, Frankston VIC, Australia',dwelling:'2P House + Villa',type:'2P',state:'vic'},
+  {name:'24 HAWKE STREET PARKDALE',addr:'24 Hawke Street, Parkdale VIC, Australia',dwelling:'4 P Villa',type:'4P Villa',state:'vic'},
+  {name:'28 BALMORAL AVENUE PASCOE VALE SOUTH',addr:'28 Balmoral Avenue, Pascoe Vale South VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'2 JOHNSTON STREET MENTONE',addr:'2 Johnston St, Mentone VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'18 TAYLOR AVENUE BURWOOD EAST',addr:'18 Taylor Avenue, Burwood East VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'3 THORNLEY CLOSE FEENTREE GULLY',addr:'3 Thornley Close, Ferntree Gully VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'10 HOLROYD COURT BLACKBURN SOUTH',addr:'10 Holroyd Court, Blackburn South VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'32 SIMMONDS STREET HUGHESDALE',addr:'32 Simmonds Street, Hughesdale VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'14 ELMSTEAD COURT FERNTREE GULLY',addr:'14 Elmstead Ct, Ferntree Gully VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'25 SWINDEN AVENUE CHELTENHAM',addr:'25 Swinden Avenue, Cheltenham VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'32 DOROTHY STREET BURWOOD EAST',addr:'32 Dorothy Street, Burwood East VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'52 WALLINGFORD STREET CHELTENHAM',addr:'52 Wallingford Street, Cheltenham VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'63 LATHAM STREET BENTLEIGH EAST',addr:'63 Latham Street, Bentleigh East VIC, Australia',dwelling:'4 P Villa',type:'4P Villa',state:'vic'},
+  {name:'10 CHAUVEL STREET BENTLEIGH EAST',addr:'10 Chauvel Street, Bentleigh East VIC, Australia',dwelling:'4 P Villa',type:'4P Villa',state:'vic'},
+  {name:'19 CHRISTIE STREET KNOXFIELD',addr:'19 Christie Street, Knoxfield VIC, Australia',dwelling:'3 P Villa',type:'3P',state:'vic'},
+  {name:'43 Separation Street Fairfield',addr:'43 Separation Street, Fairfield VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+  {name:'1 Luther Street Box Hill North',addr:'1 Luther St, Box Hill North VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'245 Darebin Road Thornbury',addr:'245 Darebin Road, Thornbury VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'4 James Street Ringwood',addr:'4 James Street, Ringwood VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'5 James Street Ringwood',addr:'5 James Street, Ringwood VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
+  {name:'328 OHEA STREET PASCOE VALE SOUTH VIC 3044',addr:'328 Ohea Street, Pascoe Vale South VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
+];// Group Homes (VIC) — non-SDA disability accommodation, competing supply
+var GROUP_HOMES_VIC=[
+  {addr:'32 Bloomfield Road, Noble Park Vic 3174',suburb:'NOBLE PARK',pc:3174,lat:-37.9764,lng:145.178,area:643.82,frontage:15.59,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'76 Normanby Avenue, Thornbury Vic 3071',suburb:'THORNBURY',pc:3071,lat:-37.7584,lng:144.992,area:330.37,frontage:7.62,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'24 Milton Street, West Footscray Vic 3012',suburb:'WEST FOOTSCRAY',pc:3012,lat:-37.7968,lng:144.88,area:266.95,frontage:11.36,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1 Suemar Street, Mulgrave Vic 3170',suburb:'MULGRAVE',pc:3170,lat:-37.931,lng:145.167,area:725.81,frontage:20.88,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/1274 Centre Road, Clayton South Vic 3169',suburb:'CLAYTON SOUTH',pc:3169,lat:-37.9282,lng:145.114,area:689.47,frontage:15.71,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'2/5-7 Layfield Street, South Melbourne Vic 3205',suburb:'SOUTH MELBOURNE',pc:3205,lat:-37.8338,lng:144.96,area:525.29,frontage:24.44,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'35 Beevers Street, Altona North Vic 3025',suburb:'ALTONA NORTH',pc:3025,lat:-37.8257,lng:144.85,area:585.72,frontage:15.25,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'135a Railway Street N, Altona Vic 3018',suburb:'ALTONA',pc:3018,lat:-37.8658,lng:144.821,area:530.49,frontage:13.18,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/5-7 Layfield Street, South Melbourne Vic 3205',suburb:'SOUTH MELBOURNE',pc:3205,lat:-37.8338,lng:144.96,area:525.29,frontage:24.44,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'13 Matlock Street, Preston Vic 3072',suburb:'PRESTON',pc:3072,lat:-37.7454,lng:144.986,area:473.16,frontage:12.2,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/113 Blackburn Road, Mount Waverley Vic 3149',suburb:'MOUNT WAVERLEY',pc:3149,lat:-37.8653,lng:145.149,area:741.72,frontage:17.36,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/168 Lincoln Road, Croydon Vic 3136',suburb:'CROYDON',pc:3136,lat:-37.7894,lng:145.303,area:864.13,frontage:18.34,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'6 Bazentin Street, Albion Vic 3020',suburb:'ALBION',pc:3020,lat:-37.7793,lng:144.822,area:464.61,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'11 Sturt Street, Essendon Vic 3040',suburb:'ESSENDON',pc:3040,lat:-37.7477,lng:144.914,area:225.36,frontage:10.73,zone:'HOUSING CHOICE & TRANSPORT ZONE',state:'vic'},
+  {addr:'1/60 Austin Street, Seddon Vic 3011',suburb:'SEDDON',pc:3011,lat:-37.8055,lng:144.893,area:215.96,frontage:10.12,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'2 Reilly Court, Croydon South Vic 3136',suburb:'CROYDON SOUTH',pc:3136,lat:-37.8146,lng:145.286,area:928.23,frontage:24.37,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/138 Tyler Street, Preston Vic 3072',suburb:'PRESTON',pc:3072,lat:-37.7317,lng:145.023,area:853.87,frontage:20.12,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'65 Dundas Street, Preston Vic 3072',suburb:'PRESTON',pc:3072,lat:-37.7528,lng:145.008,area:292.14,frontage:10.65,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'6 South Daly Street, Brunswick West Vic 3055',suburb:'BRUNSWICK WEST',pc:3055,lat:-37.7703,lng:144.944,area:428.51,frontage:9.44,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'25 Mitchell Avenue, Boronia Vic 3155',suburb:'BORONIA',pc:3155,lat:-37.8489,lng:145.298,area:725.63,frontage:16.77,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'3 Netherbrae Road, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.1453,lng:145.151,area:676.46,frontage:15.85,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'35 Ronald Road, Croydon Vic 3136',suburb:'CROYDON',pc:3136,lat:-37.8078,lng:145.275,area:865.49,frontage:18.31,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'17 Warner Street, Essendon Vic 3040',suburb:'ESSENDON',pc:3040,lat:-37.7446,lng:144.913,area:464.2,frontage:12.29,zone:'HOUSING CHOICE & TRANSPORT ZONE',state:'vic'},
+  {addr:'54 Wingate Street, Bentleigh East Vic 3165',suburb:'BENTLEIGH EAST',pc:3165,lat:-37.9359,lng:145.063,area:724.8,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'21 Collier Crescent, Brunswick Vic 3056',suburb:'BRUNSWICK',pc:3056,lat:-37.7717,lng:144.952,area:325.25,frontage:10.67,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'23 Fulham Road, Alphington Vic 3078',suburb:'ALPHINGTON',pc:3078,lat:-37.7799,lng:145.026,area:809.59,frontage:20.13,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'29 Westminster Street, Oakleigh Vic 3166',suburb:'OAKLEIGH',pc:3166,lat:-37.9015,lng:145.095,area:459.48,frontage:14.09,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/579 Maroondah Highway, Croydon Vic 3136',suburb:'CROYDON',pc:3136,lat:-37.7939,lng:145.259,area:696.42,frontage:15.23,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'2 Bondi Avenue, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.1585,lng:145.137,area:1152.51,frontage:18.96,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/160 Railway Avenue, Ringwood East Vic 3135',suburb:'RINGWOOD EAST',pc:3135,lat:-37.8102,lng:145.258,area:1093.62,frontage:22.64,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'26 Bambury Street, Boronia Vic 3155',suburb:'BORONIA',pc:3155,lat:-37.8579,lng:145.293,area:1021.36,frontage:17.83,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'7 Heatherbrae Avenue E, Ringwood Vic 3134',suburb:'RINGWOOD',pc:3134,lat:-37.8148,lng:145.218,area:702.27,frontage:16.46,zone:'ACTIVITY CENTRE ZONE',state:'vic'},
+  {addr:'138 Separation Street, Northcote Vic 3070',suburb:'NORTHCOTE',pc:3070,lat:-37.7704,lng:145.005,area:226.86,frontage:4.95,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'4 Damon Road, Mount Waverley Vic 3149',suburb:'MOUNT WAVERLEY',pc:3149,lat:-37.8835,lng:145.112,area:736.65,frontage:18.28,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'19 Millers Road, Altona Vic 3018',suburb:'ALTONA',pc:3018,lat:-37.8689,lng:144.838,area:466.5,frontage:13.41,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'6 Brand Street, Mount Waverley Vic 3149',suburb:'MOUNT WAVERLEY',pc:3149,lat:-37.8631,lng:145.123,area:741.51,frontage:20.12,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'150 Keele Street, Collingwood Vic 3066',suburb:'COLLINGWOOD',pc:3066,lat:-37.7975,lng:144.992,area:139.69,frontage:5.03,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'15 Donax Road, Corio Vic 3214',suburb:'CORIO',pc:3214,lat:-38.0708,lng:144.363,area:828.79,frontage:40.35,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/3 Rae Street, Mount Waverley Vic 3149',suburb:'MOUNT WAVERLEY',pc:3149,lat:-37.8601,lng:145.147,area:727.79,frontage:19.54,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'17 Orville Street, Altona Meadows Vic 3028',suburb:'ALTONA MEADOWS',pc:3028,lat:-37.8671,lng:144.781,area:479.34,frontage:12.19,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/17 Edwin Street, Box Hill North Vic 3129',suburb:'BOX HILL NORTH',pc:3129,lat:-37.8005,lng:145.125,area:742.38,frontage:16.45,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'3 Kilsyth Avenue, Kilsyth Vic 3137',suburb:'KILSYTH',pc:3137,lat:-37.8064,lng:145.316,area:1035.72,frontage:25.16,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'15 Mcalister Street, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.1421,lng:145.135,area:680.16,frontage:15.24,zone:'HOUSING CHOICE & TRANSPORT ZONE',state:'vic'},
+  {addr:'44 Thompsons Road, Bulleen Vic 3105',suburb:'BULLEEN',pc:3105,lat:-37.7777,lng:145.085,area:603.85,frontage:15.24,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1 Regency Street, Dandenong North Vic 3175',suburb:'DANDENONG NORTH',pc:3175,lat:-37.9649,lng:145.2,area:589.33,frontage:17.99,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'94 Broadway, Bonbeach Vic 3196',suburb:'BONBEACH',pc:3196,lat:-38.0569,lng:145.13,area:601.38,frontage:16.2,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'8 Wilson Street, Moonee Ponds Vic 3039',suburb:'MOONEE PONDS',pc:3039,lat:-37.763,lng:144.927,area:503.12,frontage:12.23,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'83 Rymer Avenue, Safety Beach Vic 3936',suburb:'SAFETY BEACH',pc:3936,lat:-38.3116,lng:145.002,area:1016.43,frontage:20.77,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'25 Agnes Street, Noble Park Vic 3174',suburb:'NOBLE PARK',pc:3174,lat:-37.9721,lng:145.169,area:688.72,frontage:15.25,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'163 Buckley Street, Seddon Vic 3011',suburb:'SEDDON',pc:3011,lat:-37.8032,lng:144.89,area:460.72,frontage:10.06,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'46 Carson Street, Mulgrave Vic 3170',suburb:'MULGRAVE',pc:3170,lat:-37.9294,lng:145.165,area:726.23,frontage:18.64,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'10 Southern Road, Heidelberg Heights Vic 3081',suburb:'HEIDELBERG HEIGHTS',pc:3081,lat:-37.7429,lng:145.058,area:650.22,frontage:21.33,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'2/14 Sherwood Street, Hadfield Vic 3046',suburb:'HADFIELD',pc:3046,lat:-37.7122,lng:144.951,area:603.71,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'23 Gower Street, Kensington Vic 3031',suburb:'KENSINGTON',pc:3031,lat:-37.7951,lng:144.929,area:204.18,frontage:6.75,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'16 Beach Street, Dromana Vic 3936',suburb:'DROMANA',pc:3936,lat:-38.3331,lng:144.967,area:733.46,frontage:18.3,zone:'COMMERCIAL 1 ZONE',state:'vic'},
+  {addr:'86 Beach Street, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.143,lng:145.131,area:810.88,frontage:12.66,zone:'RESIDENTIAL GROWTH ZONE',state:'vic'},
+  {addr:'5 Austin Street, Mitcham Vic 3132',suburb:'MITCHAM',pc:3132,lat:-37.813,lng:145.199,area:705.35,frontage:18.51,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'5 St Johns Court, Reservoir Vic 3073',suburb:'RESERVOIR',pc:3073,lat:-37.6986,lng:145.025,area:564.9,frontage:14.92,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/90 Ivanhoe Avenue, St Albans Vic 3021',suburb:'ST ALBANS',pc:3021,lat:-37.739,lng:144.815,area:961.1,frontage:23.09,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/36 Watt Street, South Kingsville Vic 3015',suburb:'SOUTH KINGSVILLE',pc:3015,lat:-37.83,lng:144.874,area:445.79,frontage:12.18,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'14 Thomson Street, Northcote Vic 3070',suburb:'NORTHCOTE',pc:3070,lat:-37.7803,lng:145.008,area:232.9,frontage:6.86,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'38 Francis Street, Ascot Vale Vic 3032',suburb:'ASCOT VALE',pc:3032,lat:-37.7771,lng:144.919,area:256.45,frontage:7.32,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'347 Rossmoyne Street, Thornbury Vic 3071',suburb:'THORNBURY',pc:3071,lat:-37.7595,lng:145.025,area:470.27,frontage:13.42,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/11 Abraham Drive, Croydon Vic 3136',suburb:'CROYDON',pc:3136,lat:-37.7894,lng:145.302,area:1126.23,frontage:32.72,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'41 Roseberry Street, Ascot Vale Vic 3032',suburb:'ASCOT VALE',pc:3032,lat:-37.7749,lng:144.913,area:419.22,frontage:9.8,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/138 Chute Street, Mordialloc Vic 3195',suburb:'MORDIALLOC',pc:3195,lat:-37.9973,lng:145.094,area:728.21,frontage:17.07,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'44 Hotham Street, Collingwood Vic 3066',suburb:'COLLINGWOOD',pc:3066,lat:-37.7964,lng:144.989,area:120.89,frontage:4.64,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'184 Francis Street, Yarraville Vic 3013',suburb:'YARRAVILLE',pc:3013,lat:-37.8201,lng:144.884,area:461.93,frontage:7.55,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'71 Earl Street E, Windsor Vic 3181',suburb:'WINDSOR',pc:3181,lat:-37.8538,lng:144.997,area:205.03,frontage:9.47,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'15 Uganda Street, Burwood Vic 3125',suburb:'BURWOOD',pc:3125,lat:-37.8444,lng:145.108,area:592.33,frontage:15.55,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/26 Urana Street, Kilsyth Vic 3137',suburb:'KILSYTH',pc:3137,lat:-37.8112,lng:145.319,area:1385.05,frontage:19.45,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'17 Banyan Drive, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.1492,lng:145.156,area:539.36,frontage:15.24,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'6 Daly Street, Brunswick West Vic 3055',suburb:'BRUNSWICK WEST',pc:3055,lat:-37.769,lng:144.944,area:580.82,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'8 Kareela Road, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.1485,lng:145.149,area:596.91,frontage:15.54,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'36 Mills Street, Altona North Vic 3025',suburb:'ALTONA NORTH',pc:3025,lat:-37.8442,lng:144.854,area:559.21,frontage:12.23,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'18 Leigh Street, Huntingdale Vic 3166',suburb:'HUNTINGDALE',pc:3166,lat:-37.9055,lng:145.107,area:557.39,frontage:16.93,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'91 Vine Street, Moonee Ponds Vic 3039',suburb:'MOONEE PONDS',pc:3039,lat:-37.7688,lng:144.933,area:455.29,frontage:12.19,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'153 Victoria Street, Brunswick Vic 3056',suburb:'BRUNSWICK',pc:3056,lat:-37.7677,lng:144.97,area:343.7,frontage:11.27,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'231 Dunns Road, Mornington Vic 3931',suburb:'MORNINGTON',pc:3931,lat:-38.2436,lng:145.047,area:572.74,frontage:25.82,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'2 Inverloch Street, Box Hill South Vic 3128',suburb:'BOX HILL SOUTH',pc:3128,lat:-37.8417,lng:145.114,area:719.28,frontage:47.55,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'341 Autumn Street, Newtown Vic 3220',suburb:'NEWTOWN',pc:3220,lat:-38.1404,lng:144.324,area:698.65,frontage:22.44,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'6 Pitt Street, West Footscray Vic 3012',suburb:'WEST FOOTSCRAY',pc:3012,lat:-37.7933,lng:144.871,area:376.32,frontage:12.37,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'19 Pollina Street, Bentleigh East Vic 3165',suburb:'BENTLEIGH EAST',pc:3165,lat:-37.9262,lng:145.052,area:579.68,frontage:15.22,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'50 Larch Crescent, Mount Waverley Vic 3149',suburb:'MOUNT WAVERLEY',pc:3149,lat:-37.8688,lng:145.148,area:720.57,frontage:18.58,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'13 Dawe Road, Mitcham Vic 3132',suburb:'MITCHAM',pc:3132,lat:-37.8107,lng:145.2,area:620.73,frontage:15.31,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'74 Seaview Avenue, Safety Beach Vic 3936',suburb:'SAFETY BEACH',pc:3936,lat:-38.3112,lng:144.997,area:857.86,frontage:14.96,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'1/7 Hooker Avenue, Springvale Vic 3171',suburb:'SPRINGVALE',pc:3171,lat:-37.9598,lng:145.139,area:710.74,frontage:15.85,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'5 Willis Street, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.145,lng:145.13,area:596.39,frontage:16.76,zone:'RESIDENTIAL GROWTH ZONE',state:'vic'},
+  {addr:'55 Carina Drive, Melton Vic 3337',suburb:'MELTON',pc:3337,lat:-37.6833,lng:144.57,area:585.19,frontage:15.24,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'10 Queen Street, St Kilda East Vic 3183',suburb:'ST KILDA EAST',pc:3183,lat:-37.8638,lng:144.992,area:284.06,frontage:9.32,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'29 Golconda Avenue, Frankston Vic 3199',suburb:'FRANKSTON',pc:3199,lat:-38.1404,lng:145.149,area:561.76,frontage:18.28,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'130 Vines Road, Hamlyn Heights Vic 3215',suburb:'HAMLYN HEIGHTS',pc:3215,lat:-38.1168,lng:144.329,area:603.96,frontage:15.24,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'11 Warbla Street, Dandenong North Vic 3175',suburb:'DANDENONG NORTH',pc:3175,lat:-37.9665,lng:145.201,area:597.08,frontage:15.55,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'48 Tulloch Street, Deer Park Vic 3023',suburb:'DEER PARK',pc:3023,lat:-37.7724,lng:144.77,area:464.52,frontage:12.19,zone:'RESIDENTIAL GROWTH ZONE',state:'vic'},
+  {addr:'18 Hick Street, Spotswood Vic 3015',suburb:'SPOTSWOOD',pc:3015,lat:-37.8292,lng:144.876,area:601.56,frontage:15.55,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'13 Golf Avenue, Kingsbury Vic 3083',suburb:'KINGSBURY',pc:3083,lat:-37.715,lng:145.033,area:464.48,frontage:18.29,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'51 Kidman Street, Yarraville Vic 3013',suburb:'YARRAVILLE',pc:3013,lat:-37.8142,lng:144.863,area:588.89,frontage:15.47,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+  {addr:'20 Alvena Crescent, Heathmont Vic 3135',suburb:'HEATHMONT',pc:3135,lat:-37.8237,lng:145.249,area:696.79,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'15 Boreham Street, Sunshine Vic 3020',suburb:'SUNSHINE',pc:3020,lat:-37.7998,lng:144.823,area:557.49,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
+  {addr:'8 Eric Avenue, Mordialloc Vic 3195',suburb:'MORDIALLOC',pc:3195,lat:-37.9999,lng:145.089,area:639.16,frontage:16.76,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
+];// Existing SDA (NSW) — filled SDA dwellings, direct competing supply
+var EXISTING_SDA_NSW=[
+  {addr:'11 Elm Street, Burwood Heights Nsw 2136',suburb:'BURWOOD HEIGHTS',pc:2136,lat:-33.8903,lng:151.103,area:610.43,frontage:21.72,zone:'Low Density Residential',state:'nsw'},
+  {addr:'10 Killarney Street, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8202,lng:151.243,area:451.29,frontage:12.28,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'26 Bluebell Crescent, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0596,lng:150.73,area:501.06,frontage:9.64,zone:'General Residential',state:'nsw'},
+  {addr:'10 Austen Circuit, Oran Park Nsw 2570',suburb:'ORAN PARK',pc:2570,lat:-34.0012,lng:150.726,area:539.86,frontage:18.02,zone:'General Residential',state:'nsw'},
+  {addr:'11 Axford Avenue, Airds Nsw 2560',suburb:'AIRDS',pc:2560,lat:-34.0837,lng:150.831,area:407.14,frontage:10.48,zone:'Low Density Residential',state:'nsw'},
+  {addr:'82 Pendle Way, Pendle Hill Nsw 2145',suburb:'PENDLE HILL',pc:2145,lat:-33.8046,lng:150.954,area:1397.39,frontage:20.32,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'7 Ravenswood Street, Canley Vale Nsw 2166',suburb:'CANLEY VALE',pc:2166,lat:-33.889,lng:150.957,area:1524.85,frontage:18.37,zone:'Low Density Residential',state:'nsw'},
+  {addr:'72 Floyd Street, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0655,lng:150.715,area:867.51,frontage:15.01,zone:'General Residential',state:'nsw'},
+  {addr:'14 Balbeek Avenue, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7577,lng:150.888,area:553.4,frontage:18.28,zone:'Low Density Residential',state:'nsw'},
+  {addr:'109 Copeland Road, Beecroft Nsw 2119',suburb:'BEECROFT',pc:2119,lat:-33.7515,lng:151.061,area:1417.08,frontage:38.78,zone:'Low Density Residential',state:'nsw'},
+  {addr:'94 High Street, Mascot Nsw 2020',suburb:'MASCOT',pc:2020,lat:-33.9302,lng:151.189,area:441.72,frontage:9.31,zone:'Low Density Residential',state:'nsw'},
+  {addr:'109 Homebush Road, Strathfield Nsw 2135',suburb:'STRATHFIELD',pc:2135,lat:-33.8788,lng:151.085,area:881.1,frontage:14.83,zone:'Low Density Residential',state:'nsw'},
+  {addr:'2 Hyde Avenue, Killarney Heights Nsw 2087',suburb:'KILLARNEY HEIGHTS',pc:2087,lat:-33.7795,lng:151.221,area:874.19,frontage:35.77,zone:'Low Density Residential',state:'nsw'},
+  {addr:'3a Welham Street, Beecroft Nsw 2119',suburb:'BEECROFT',pc:2119,lat:-33.754,lng:151.066,area:868.72,frontage:18.2,zone:'Low Density Residential',state:'nsw'},
+  {addr:'33 Shellbourne Place, Cranebrook Nsw 2749',suburb:'CRANEBROOK',pc:2749,lat:-33.7261,lng:150.703,area:613.59,frontage:15.03,zone:'General Residential',state:'nsw'},
+  {addr:'190 Richmond Road, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7543,lng:150.89,area:651.82,frontage:29.97,zone:'Low Density Residential',state:'nsw'},
+  {addr:'11 Denman Parade, Normanhurst Nsw 2076',suburb:'NORMANHURST',pc:2076,lat:-33.7202,lng:151.099,area:1059.93,frontage:15.26,zone:'Low Density Residential',state:'nsw'},
+  {addr:'9 Veron Street, Wentworthville Nsw 2145',suburb:'WENTWORTHVILLE',pc:2145,lat:-33.8088,lng:150.979,area:592.27,frontage:14.57,zone:'High Density Residential',state:'nsw'},
+  {addr:'49 Alexandra Avenue, Westmead Nsw 2145',suburb:'WESTMEAD',pc:2145,lat:-33.8084,lng:150.983,area:560.76,frontage:15.12,zone:'Low Density Residential',state:'nsw'},
+  {addr:'138 Greenbank Drive, Werrington Downs Nsw 2747',suburb:'WERRINGTON DOWNS',pc:2747,lat:-33.7417,lng:150.727,area:655.11,frontage:22.25,zone:'Low Density Residential',state:'nsw'},
+  {addr:'78 Newton Road, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7731,lng:150.899,area:740.13,frontage:15.14,zone:'Low Density Residential',state:'nsw'},
+  {addr:'39 Wisteria Crescent, Cherrybrook Nsw 2126',suburb:'CHERRYBROOK',pc:2126,lat:-33.7134,lng:151.055,area:811.14,frontage:18.23,zone:'Low Density Residential',state:'nsw'},
+  {addr:'9 Tanbark Place, Dural Nsw 2158',suburb:'DURAL',pc:2158,lat:-33.7167,lng:151.029,area:866.18,frontage:20.96,zone:'Low Density Residential',state:'nsw'},
+  {addr:'14 Stanley Street, Croydon Park Nsw 2133',suburb:'CROYDON PARK',pc:2133,lat:-33.8954,lng:151.099,area:1027,frontage:14.69,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'65 Doonside Crescent, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7647,lng:150.889,area:1041.62,frontage:20.35,zone:'Low Density Residential',state:'nsw'},
+  {addr:'12 Turvey Road, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7777,lng:150.905,area:746.5,frontage:14.8,zone:'Low Density Residential',state:'nsw'},
+  {addr:'108 Cowles Road, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8231,lng:151.238,area:388.41,frontage:10.95,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'177 Knox Road, Doonside Nsw 2767',suburb:'DOONSIDE',pc:2767,lat:-33.7499,lng:150.866,area:566.58,frontage:16.05,zone:'Low Density Residential',state:'nsw'},
+  {addr:'6 Quarry Road, Dural Nsw 2158',suburb:'DURAL',pc:2158,lat:-33.6967,lng:151.034,area:11990.9,frontage:60.47,zone:'Rural Landscape',state:'nsw'},
+  {addr:'44 Lennox Street, Old Toongabbie Nsw 2146',suburb:'OLD TOONGABBIE',pc:2146,lat:-33.7925,lng:150.965,area:648.05,frontage:15.99,zone:'Low Density Residential',state:'nsw'},
+  {addr:'99 Macquarie Street, Parramatta Nsw 2150',suburb:'PARRAMATTA',pc:2150,lat:-33.8156,lng:151.004,area:1071.73,frontage:33.07,zone:'Mixed Use',state:'nsw'},
+  {addr:'9 Bundeena Road, Woodbine Nsw 2560',suburb:'WOODBINE',pc:2560,lat:-34.0498,lng:150.817,area:721.09,frontage:20.03,zone:'Low Density Residential',state:'nsw'},
+  {addr:'3 Virginia Street, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7581,lng:150.894,area:879.92,frontage:19.9,zone:'Low Density Residential',state:'nsw'},
+  {addr:'4 Salmon Street, Oran Park Nsw 2570',suburb:'ORAN PARK',pc:2570,lat:-34.012,lng:150.732,area:829.69,frontage:31.05,zone:'General Residential',state:'nsw'},
+  {addr:'9 Bowral Road, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.775,lng:150.905,area:1504.53,frontage:30.41,zone:'High Density Residential',state:'nsw'},
+  {addr:'11 Ashton Avenue, Forestville Nsw 2087',suburb:'FORESTVILLE',pc:2087,lat:-33.7593,lng:151.212,area:698,frontage:1.07,zone:'Low Density Residential',state:'nsw'},
+  {addr:'23 Austral Avenue, Beecroft Nsw 2119',suburb:'BEECROFT',pc:2119,lat:-33.7548,lng:151.06,area:2033.73,frontage:4.73,zone:'Low Density Residential',state:'nsw'},
+  {addr:'1 Keiley Street, Marsfield Nsw 2122',suburb:'MARSFIELD',pc:2122,lat:-33.7833,lng:151.104,area:582.69,frontage:12.85,zone:'Low Density Residential',state:'nsw'},
+  {addr:'15 Clements Parade, Kirrawee Nsw 2232',suburb:'KIRRAWEE',pc:2232,lat:-34.0341,lng:151.079,area:772.16,frontage:14.01,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'8 Alma Place, Rooty Hill Nsw 2766',suburb:'ROOTY HILL',pc:2766,lat:-33.7681,lng:150.837,area:992.97,frontage:11.9,zone:'Low Density Residential',state:'nsw'},
+  {addr:'48 Waikanda Crescent, Whalan Nsw 2770',suburb:'WHALAN',pc:2770,lat:-33.7524,lng:150.804,area:576.17,frontage:15.86,zone:'Low Density Residential',state:'nsw'},
+  {addr:'2 Palmer Street, Parramatta Nsw 2150',suburb:'PARRAMATTA',pc:2150,lat:-33.8094,lng:151.006,area:593.37,frontage:17.21,zone:'Mixed Use',state:'nsw'},
+  {addr:'3 Glenrothes Place, Dharruk Nsw 2770',suburb:'DHARRUK',pc:2770,lat:-33.7486,lng:150.819,area:725.74,frontage:15.23,zone:'Low Density Residential',state:'nsw'},
+  {addr:'41 Copeland Road, Lethbridge Park Nsw 2770',suburb:'LETHBRIDGE PARK',pc:2770,lat:-33.7398,lng:150.803,area:661.2,frontage:19.74,zone:'Low Density Residential',state:'nsw'},
+  {addr:'117 Alfred Street, Parramatta Nsw 2150',suburb:'PARRAMATTA',pc:2150,lat:-33.8191,lng:151.017,area:372.91,frontage:18.48,zone:'Low Density Residential',state:'nsw'},
+  {addr:'6 The Straight, Oran Park Nsw 2570',suburb:'ORAN PARK',pc:2570,lat:-34.0054,lng:150.739,area:630.06,frontage:18.02,zone:'General Residential',state:'nsw'},
+  {addr:'69 Holt Avenue, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8309,lng:151.232,area:518.09,frontage:13.91,zone:'Low Density Residential',state:'nsw'},
+  {addr:'11 St Agnes Way, Blair Athol Nsw 2560',suburb:'BLAIR ATHOL',pc:2560,lat:-34.0616,lng:150.808,area:723.04,frontage:15.02,zone:'Low Density Residential',state:'nsw'},
+  {addr:'18 Macquarie Drive, Cherrybrook Nsw 2126',suburb:'CHERRYBROOK',pc:2126,lat:-33.7261,lng:151.047,area:688.84,frontage:22.57,zone:'Low Density Residential',state:'nsw'},
+  {addr:'70 Coward Street, Rosebery Nsw 2018',suburb:'ROSEBERY',pc:2018,lat:-33.926,lng:151.201,area:412.56,frontage:0,zone:'Low Density Residential',state:'nsw'},
+  {addr:'1 Whalan Place, Whalan Nsw 2770',suburb:'WHALAN',pc:2770,lat:-33.7547,lng:150.81,area:652.63,frontage:32.7,zone:'Local Centre',state:'nsw'},
+  {addr:'1 Hill Street, Wentworthville Nsw 2145',suburb:'WENTWORTHVILLE',pc:2145,lat:-33.8057,lng:150.972,area:1011.8,frontage:15.22,zone:'High Density Residential',state:'nsw'},
+  {addr:'179 Beecroft Road, Cheltenham Nsw 2119',suburb:'CHELTENHAM',pc:2119,lat:-33.758,lng:151.074,area:1957.89,frontage:44.27,zone:'Low Density Residential',state:'nsw'},
+  {addr:'171 Franklin Street, Chifley Nsw 2036',suburb:'CHIFLEY',pc:2036,lat:-33.9629,lng:151.24,area:570.25,frontage:12.32,zone:'Low Density Residential',state:'nsw'},
+  {addr:'1 Koorong Street, Marsfield Nsw 2122',suburb:'MARSFIELD',pc:2122,lat:-33.7791,lng:151.105,area:657.03,frontage:6.47,zone:'Low Density Residential',state:'nsw'},
+  {addr:'8 The Cloisters, St Ives Nsw 2075',suburb:'ST IVES',pc:2075,lat:-33.7217,lng:151.174,area:930.02,frontage:9.39,zone:'Low Density Residential',state:'nsw'},
+  {addr:'22 Stanton Road, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8197,lng:151.249,area:701.51,frontage:16.55,zone:'Environmental Living',state:'nsw'},
+  {addr:'17 Starcevich Street, Airds Nsw 2560',suburb:'AIRDS',pc:2560,lat:-34.0837,lng:150.832,area:376.08,frontage:12.52,zone:'Low Density Residential',state:'nsw'},
+  {addr:'5 Feldspar Road, Eagle Vale Nsw 2558',suburb:'EAGLE VALE',pc:2558,lat:-34.0335,lng:150.817,area:539.5,frontage:19.02,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'30 Colah Road, Mount Colah Nsw 2079',suburb:'MOUNT COLAH',pc:2079,lat:-33.6758,lng:151.117,area:967.06,frontage:20,zone:'Low Density Residential',state:'nsw'},
+  {addr:'105 Aurora Drive, Tregear Nsw 2770',suburb:'TREGEAR',pc:2770,lat:-33.7469,lng:150.796,area:588.31,frontage:15.5,zone:'Low Density Residential',state:'nsw'},
+  {addr:'5 Coster Street, Frenchs Forest Nsw 2086',suburb:'FRENCHS FOREST',pc:2086,lat:-33.7479,lng:151.242,area:1133.12,frontage:40.29,zone:'Low Density Residential',state:'nsw'},
+  {addr:'6 Axford Avenue, Airds Nsw 2560',suburb:'AIRDS',pc:2560,lat:-34.0842,lng:150.83,area:425.15,frontage:12.52,zone:'Low Density Residential',state:'nsw'},
+  {addr:'38 Prince Street, Oatlands Nsw 2117',suburb:'OATLANDS',pc:2117,lat:-33.7997,lng:151.025,area:1077.28,frontage:25.92,zone:'Low Density Residential',state:'nsw'},
+  {addr:'11 Kinsdale Close, Killarney Heights Nsw 2087',suburb:'KILLARNEY HEIGHTS',pc:2087,lat:-33.7679,lng:151.207,area:714.58,frontage:19.48,zone:'Low Density Residential',state:'nsw'},
+  {addr:'29 Rhodes Avenue, Guildford Nsw 2161',suburb:'GUILDFORD',pc:2161,lat:-33.8577,lng:150.991,area:692.06,frontage:15.31,zone:'Low Density Residential',state:'nsw'},
+  {addr:'2 Buckra Street, Turramurra Nsw 2074',suburb:'TURRAMURRA',pc:2074,lat:-33.7274,lng:151.143,area:1138.18,frontage:16.23,zone:'Low Density Residential',state:'nsw'},
+  {addr:'574 Guildford Road, Guildford West Nsw 2161',suburb:'GUILDFORD WEST',pc:2161,lat:-33.8509,lng:150.969,area:719.34,frontage:20.12,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'6 Doncaster Avenue, Narellan Nsw 2567',suburb:'NARELLAN',pc:2567,lat:-34.0404,lng:150.74,area:652.56,frontage:15.48,zone:'Low Density Residential',state:'nsw'},
+  {addr:'17 Walnut Way, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0661,lng:150.72,area:801.26,frontage:35.79,zone:'General Residential',state:'nsw'},
+  {addr:'81 Fairlawn Avenue, Turramurra Nsw 2074',suburb:'TURRAMURRA',pc:2074,lat:-33.7212,lng:151.139,area:1360.02,frontage:29.82,zone:'Low Density Residential',state:'nsw'},
+  {addr:'112 Blaxcell Street, Granville Nsw 2142',suburb:'GRANVILLE',pc:2142,lat:-33.843,lng:151.01,area:483.03,frontage:12.15,zone:'Low Density Residential',state:'nsw'},
+  {addr:'87 Ringrose Avenue, Greystanes Nsw 2145',suburb:'GREYSTANES',pc:2145,lat:-33.8256,lng:150.958,area:760.76,frontage:20.16,zone:'Low Density Residential',state:'nsw'},
+  {addr:'9 Lyndia Street, Ingleburn Nsw 2565',suburb:'INGLEBURN',pc:2565,lat:-34.0074,lng:150.865,area:560.1,frontage:10.8,zone:'Low Density Residential',state:'nsw'},
+  {addr:'47 Clanalpine Street, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8365,lng:151.241,area:391.93,frontage:10.2,zone:'Environmental Living',state:'nsw'},
+  {addr:'5 Logonia Crescent, Mount Annan Nsw 2567',suburb:'MOUNT ANNAN',pc:2567,lat:-34.0662,lng:150.75,area:617.93,frontage:23.34,zone:'Low Density Residential',state:'nsw'},
+  {addr:'19 Narcissus Avenue, Quakers Hill Nsw 2763',suburb:'QUAKERS HILL',pc:2763,lat:-33.7412,lng:150.872,area:557.89,frontage:15.02,zone:'Low Density Residential',state:'nsw'},
+  {addr:'10 Dover Street, Marsfield Nsw 2122',suburb:'MARSFIELD',pc:2122,lat:-33.7817,lng:151.105,area:595.89,frontage:19.13,zone:'Low Density Residential',state:'nsw'},
+  {addr:'59 Burke Street, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7832,lng:150.894,area:580.21,frontage:16.77,zone:'Low Density Residential',state:'nsw'},
+  {addr:'36 Chester Street, Merrylands Nsw 2160',suburb:'MERRYLANDS',pc:2160,lat:-33.8239,lng:150.984,area:674.28,frontage:15.78,zone:'Low Density Residential',state:'nsw'},
+  {addr:'54 Woodstock Street, Guildford Nsw 2161',suburb:'GUILDFORD',pc:2161,lat:-33.8506,lng:150.993,area:860.23,frontage:19.66,zone:'Low Density Residential',state:'nsw'},
+  {addr:'24 Bluebell Crescent, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0595,lng:150.73,area:572.22,frontage:5,zone:'General Residential',state:'nsw'},
+  {addr:'142 Deepwater Road, Castle Cove Nsw 2069',suburb:'CASTLE COVE',pc:2069,lat:-33.7884,lng:151.217,area:898.57,frontage:21.88,zone:'Low Density Residential',state:'nsw'},
+  {addr:'18 Antill Street, Yennora Nsw 2161',suburb:'YENNORA',pc:2161,lat:-33.8628,lng:150.979,area:964.89,frontage:19.01,zone:'Low Density Residential',state:'nsw'},
+  {addr:'96 Floyd Street, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0661,lng:150.713,area:667.47,frontage:15.02,zone:'General Residential',state:'nsw'},
+  {addr:'293 Merrylands Road, Merrylands Nsw 2160',suburb:'MERRYLANDS',pc:2160,lat:-33.8354,lng:150.986,area:533.53,frontage:16.27,zone:'Commercial Centre',state:'nsw'},
+  {addr:'1 Hampden Street, Ashfield Nsw 2131',suburb:'ASHFIELD',pc:2131,lat:-33.8901,lng:151.118,area:612.38,frontage:14,zone:'Low Density Residential',state:'nsw'},
+  {addr:'23 Bellamy Street, Pennant Hills Nsw 2120',suburb:'PENNANT HILLS',pc:2120,lat:-33.735,lng:151.064,area:1669.29,frontage:30.78,zone:'Low Density Residential',state:'nsw'},
+  {addr:'22 Rosedale Road, Gordon Nsw 2072',suburb:'GORDON',pc:2072,lat:-33.7521,lng:151.156,area:1395.62,frontage:18.32,zone:'Low Density Residential',state:'nsw'},
+  {addr:'39 Louis Street, Granville Nsw 2142',suburb:'GRANVILLE',pc:2142,lat:-33.8407,lng:151.007,area:596.8,frontage:14.87,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'119a Macquarie Street, Parramatta Nsw 2150',suburb:'PARRAMATTA',pc:2150,lat:-33.8157,lng:151.005,area:928.16,frontage:14.25,zone:'Mixed Use',state:'nsw'},
+  {addr:'52 Craig Avenue, Oxley Park Nsw 2760',suburb:'OXLEY PARK',pc:2760,lat:-33.7727,lng:150.797,area:549.94,frontage:22.2,zone:'Low Density Residential',state:'nsw'},
+  {addr:'4 Union Street, Toongabbie Nsw 2146',suburb:'TOONGABBIE',pc:2146,lat:-33.7839,lng:150.948,area:948.97,frontage:26.55,zone:'Low Density Residential',state:'nsw'},
+  {addr:'10 Boronia Street, South Wentworthville Nsw 2145',suburb:'SOUTH WENTWORTHVILLE',pc:2145,lat:-33.8182,lng:150.968,area:1268.84,frontage:22.51,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'8 Pandora Street, Gregory Hills Nsw 2557',suburb:'GREGORY HILLS',pc:2557,lat:-34.0292,lng:150.785,area:787.56,frontage:14.26,zone:'General Residential',state:'nsw'},
+  {addr:'9 Cub Street, Leppington Nsw 2179',suburb:'LEPPINGTON',pc:2179,lat:-33.9791,lng:150.808,area:420,frontage:15.02,zone:'Low Density Residential',state:'nsw'},
+  {addr:'136 Ellam Drive, Seven Hills Nsw 2147',suburb:'SEVEN HILLS',pc:2147,lat:-33.7959,lng:150.926,area:1258.33,frontage:4.86,zone:'Low Density Residential',state:'nsw'},
+  {addr:'50 Starkey Street, Forestville Nsw 2087',suburb:'FORESTVILLE',pc:2087,lat:-33.7659,lng:151.215,area:686.14,frontage:18.37,zone:'Low Density Residential',state:'nsw'},
+  {addr:'94 Jersey Road, Dharruk Nsw 2770',suburb:'DHARRUK',pc:2770,lat:-33.7436,lng:150.816,area:1769.87,frontage:36.45,zone:'Low Density Residential',state:'nsw'},
+  {addr:'4 Bursaria Road, Mount Annan Nsw 2567',suburb:'MOUNT ANNAN',pc:2567,lat:-34.0651,lng:150.757,area:499.88,frontage:21.33,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'4 Koorong Street, Marsfield Nsw 2122',suburb:'MARSFIELD',pc:2122,lat:-33.7791,lng:151.106,area:583.31,frontage:17.11,zone:'Low Density Residential',state:'nsw'},
+  {addr:'1-3 Eschol Park Drive, Eschol Park Nsw 2558',suburb:'ESCHOL PARK',pc:2558,lat:-34.0269,lng:150.816,area:1241.78,frontage:66.54,zone:'Low Density Residential',state:'nsw'},
+  {addr:'24 Albion Street, Harris Park Nsw 2150',suburb:'HARRIS PARK',pc:2150,lat:-33.8214,lng:151.01,area:576.76,frontage:18.99,zone:'Low Density Residential',state:'nsw'},
+  {addr:'14 Ryedale Road, Denistone Nsw 2114',suburb:'DENISTONE',pc:2114,lat:-33.7995,lng:151.089,area:744.81,frontage:11.96,zone:'Low Density Residential',state:'nsw'},
+  {addr:'69 Cedarwood Drive, Cherrybrook Nsw 2126',suburb:'CHERRYBROOK',pc:2126,lat:-33.7338,lng:151.046,area:1472.11,frontage:38.24,zone:'Low Density Residential',state:'nsw'},
+  {addr:'65 Burwood Road, Belfield Nsw 2191',suburb:'BELFIELD',pc:2191,lat:-33.9056,lng:151.086,area:513.21,frontage:13.42,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'16 Metella Road, Toongabbie Nsw 2146',suburb:'TOONGABBIE',pc:2146,lat:-33.788,lng:150.946,area:1216.31,frontage:20.19,zone:'Low Density Residential',state:'nsw'},
+  {addr:'10 Paperbark Place, Narellan Vale Nsw 2567',suburb:'NARELLAN VALE',pc:2567,lat:-34.0493,lng:150.745,area:605.92,frontage:14.31,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'7 Second Avenue, Loftus Nsw 2232',suburb:'LOFTUS',pc:2232,lat:-34.0375,lng:151.051,area:1020.27,frontage:20.4,zone:'Low Density Residential',state:'nsw'},
+  {addr:'25 Stanley Street, Blacktown Nsw 2148',suburb:'BLACKTOWN',pc:2148,lat:-33.7859,lng:150.909,area:562.42,frontage:15.31,zone:'Low Density Residential',state:'nsw'},
+  {addr:'58 Valley View Drive, Narellan Nsw 2567',suburb:'NARELLAN',pc:2567,lat:-34.0385,lng:150.725,area:707.17,frontage:20.42,zone:'Low Density Residential',state:'nsw'},
+  {addr:'51a Mount Pleasant Avenue, Normanhurst Nsw 2076',suburb:'NORMANHURST',pc:2076,lat:-33.7283,lng:151.099,area:1200.67,frontage:18.01,zone:'Low Density Residential',state:'nsw'},
+  {addr:'1/120 Spit Road, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8195,lng:151.243,area:967.55,frontage:20.06,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'28a Softwood Street, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0752,lng:150.728,area:502.17,frontage:15.52,zone:'General Residential',state:'nsw'},
+  {addr:'47a Fourth Avenue, Llandilo Nsw 2747',suburb:'LLANDILO',pc:2747,lat:-33.6961,lng:150.739,area:20202.2,frontage:100.79,zone:'Primary Production Small Lots',state:'nsw'},
+  {addr:'15 Elizabeth Street, Rooty Hill Nsw 2766',suburb:'ROOTY HILL',pc:2766,lat:-33.7667,lng:150.837,area:1171.26,frontage:19.35,zone:'Low Density Residential',state:'nsw'},
+  {addr:'6 Bransfield Street, Tregear Nsw 2770',suburb:'TREGEAR',pc:2770,lat:-33.7455,lng:150.797,area:673.45,frontage:3.78,zone:'Low Density Residential',state:'nsw'},
+  {addr:'12 Schofield Parade, Pennant Hills Nsw 2120',suburb:'PENNANT HILLS',pc:2120,lat:-33.7283,lng:151.062,area:11564.8,frontage:0,zone:'Infrastructure',state:'nsw'},
+  {addr:'1 Hicks Avenue, Mascot Nsw 2020',suburb:'MASCOT',pc:2020,lat:-33.9313,lng:151.202,area:471.92,frontage:12.24,zone:'Low Density Residential',state:'nsw'},
+  {addr:'25 Dorothy Street, Merrylands Nsw 2160',suburb:'MERRYLANDS',pc:2160,lat:-33.823,lng:150.978,area:847,frontage:17.89,zone:'Low Density Residential',state:'nsw'},
+  {addr:'13 Bonnie View Street, Gymea Nsw 2227',suburb:'GYMEA',pc:2227,lat:-34.0387,lng:151.082,area:942.81,frontage:18.01,zone:'Low Density Residential',state:'nsw'},
+  {addr:'119 Macquarie Street, Parramatta Nsw 2150',suburb:'PARRAMATTA',pc:2150,lat:-33.8156,lng:151.004,area:612.87,frontage:19.1,zone:'Mixed Use',state:'nsw'},
+  {addr:'28 Walker Street, Merrylands Nsw 2160',suburb:'MERRYLANDS',pc:2160,lat:-33.8435,lng:150.988,area:1007.82,frontage:22.04,zone:'Medium Density Residential',state:'nsw'},
+  {addr:'46-48 Sorrell Street, North Parramatta Nsw 2151',suburb:'NORTH PARRAMATTA',pc:2151,lat:-33.8056,lng:151.008,area:3295.62,frontage:61.92,zone:'Low Density Residential',state:'nsw'},
+  {addr:'53 Cecil Street, Guildford Nsw 2161',suburb:'GUILDFORD',pc:2161,lat:-33.8483,lng:150.986,area:1091.31,frontage:18.71,zone:'Low Density Residential',state:'nsw'},
+  {addr:'70 Norfolk Road, North Epping Nsw 2121',suburb:'NORTH EPPING',pc:2121,lat:-33.7624,lng:151.088,area:1608.41,frontage:34.48,zone:'Low Density Residential',state:'nsw'},
+  {addr:'7 Mcgee Place, Baulkham Hills Nsw 2153',suburb:'BAULKHAM HILLS',pc:2153,lat:-33.7602,lng:151.006,area:709.44,frontage:20.86,zone:'Low Density Residential',state:'nsw'},
+];
+
+var PARAMS={
   vic:{stamp:0.055,ba:0.04,leg:1000,pexa:495,val:3500,b2p:650000,b3p:770000,bdp:645000,cg:0.03,c2p:219430,c3p:255660,cdp:425460,cap:0.065,exitCost:100000,rg:0.03,hold:5},
   nsw:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:1150000,b3p:1150000,bdp:1150000,cg:0.05,c2p:180000,c3p:209470,cdp:400000,cap:0.065,exitCost:100000,rg:0.03,hold:5},
   qld:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:710000,b3p:800000,bdp:710000,cg:0.03,c2p:108000,c3p:127675,cdp:215000,cap:0.065,exitCost:100000,rg:0.03,hold:5}
@@ -4355,7 +4665,7 @@ function applyF(){
   // If the demand heatmap has been opened, re-render with new filtered set.
   // Only fires if map has actually been initialised — no-op otherwise.
   if (typeof hmInitialised !== 'undefined' && hmInitialised) {
-    try { renderHeatmap(); } catch(ex){}
+    try { renderAllLayers(); } catch(ex){}
   }
   saveView();
 }
@@ -6183,7 +6493,7 @@ function sw(id,el){
   if(id==='pricing')renderPricing();
   if(id==='demand')renderDemand();
   if(id==='sdamap')initSdaMap();
-  if(id==='propmap')initHeatmap();
+  if(id==='propmap')initMarketMap();
 }
 
 // =============================================================================
@@ -6625,13 +6935,18 @@ function renderHeatmap(){
       });
     }
     if (countsEl) {
-      var totalProps = summary.reduce(function(s,x){return s + x.propertyCount;}, 0);
-      var underCount = summary.filter(function(s){return (s.gap||0) > 0;}).length;
-      var overCount  = summary.filter(function(s){return (s.gap||0) < 0;}).length;
-      countsEl.textContent = drawn + ' SA4' + (drawn===1?'':'s') + ' \u2022 '
-        + underCount + ' under-supplied \u2022 '
-        + overCount  + ' over-supplied \u2022 '
-        + totalProps + ' propert' + (totalProps===1?'y':'ies');
+      // Defer to updateLayerCounts (multi-layer aware) if it exists, else fallback
+      if (typeof updateLayerCounts === 'function') {
+        updateLayerCounts();
+      } else {
+        var totalProps = summary.reduce(function(s,x){return s + x.propertyCount;}, 0);
+        var underCount = summary.filter(function(s){return (s.gap||0) > 0;}).length;
+        var overCount  = summary.filter(function(s){return (s.gap||0) < 0;}).length;
+        countsEl.textContent = drawn + ' SA4' + (drawn===1?'':'s') + ' \u2022 '
+          + underCount + ' under-supplied \u2022 '
+          + overCount  + ' over-supplied \u2022 '
+          + totalProps + ' propert' + (totalProps===1?'y':'ies');
+      }
     }
   }
 
@@ -6699,6 +7014,307 @@ function hmFilterScreenerToSA4(sa4){
   var screenerTabBtn = document.querySelector('.tab[onclick*="screen"]');
   if (screenerTabBtn) sw('screen', screenerTabBtn);
 }
+
+
+// =============================================================================
+// MARKET MAP — multi-layer wrapper around the demand heatmap.
+// Adds three additional layers (Radius pipeline, Group homes VIC, Existing SDA
+// NSW) which overlay on top of the existing demand heatmap. Each layer toggles
+// independently. Layer state persists to localStorage.
+// =============================================================================
+var LAYER_KEY = 'sda_screener_market_map_layers_v1';
+var marketMapLayers = { demand:true, radius:false, ghomes:false, existing:false };
+
+// Marker collections per layer — kept separate so we can show/hide cleanly
+var radiusMarkers = [];
+var ghomesMarkers = [];
+var existingMarkers = [];
+
+function loadLayerState(){
+  try {
+    var raw = localStorage.getItem(LAYER_KEY);
+    if (raw) {
+      var v = JSON.parse(raw);
+      if (v && typeof v === 'object') {
+        ['demand','radius','ghomes','existing'].forEach(function(k){
+          if (typeof v[k] === 'boolean') marketMapLayers[k] = v[k];
+        });
+      }
+    }
+  } catch(ex){}
+}
+function saveLayerState(){
+  try { localStorage.setItem(LAYER_KEY, JSON.stringify(marketMapLayers)); } catch(ex){}
+}
+function syncLayerButtons(){
+  ['demand','radius','ghomes','existing'].forEach(function(k){
+    var el = document.getElementById('lyr-'+k);
+    if (el) el.classList.toggle('lyrbtn-on', !!marketMapLayers[k]);
+  });
+}
+function toggleLayer(name){
+  marketMapLayers[name] = !marketMapLayers[name];
+  saveLayerState();
+  syncLayerButtons();
+  renderAllLayers();
+}
+
+// Master init — replaces the old initHeatmap entrypoint
+function initMarketMap(){
+  loadLayerState();
+  syncLayerButtons();
+  // Reuse the existing heatmap init for map+infowindow setup. It calls
+  // renderHeatmap() at the end which we don't want; we override below.
+  if (hmInitialised) {
+    renderAllLayers();
+    return;
+  }
+  if (hmInitialising) return;
+  hmInitialising = true;
+  var emptyEl = document.getElementById('propmap-empty');
+  if (emptyEl) {
+    emptyEl.style.display = 'flex';
+    emptyEl.innerHTML = '<div style="font-weight:600;color:#374151">Loading map\u2026</div>';
+  }
+  loadGoogleMapsJS()
+    .then(function(){
+      hmInstance = new google.maps.Map(document.getElementById('propmap'), {
+        center: { lat: -33.0, lng: 145.0 },
+        zoom: 5,
+        mapTypeControl: true,
+        streetViewControl: false,
+        fullscreenControl: true,
+        styles: [
+          { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+          { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+          { featureType: 'road', elementType: 'labels', stylers: [{ visibility: 'off' }] }
+        ]
+      });
+      hmInfoWindow = new google.maps.InfoWindow();
+      hmInitialised = true;
+      hmInitialising = false;
+      if (emptyEl) emptyEl.style.display = 'none';
+      renderAllLayers();
+    })
+    .catch(function(err){
+      hmInitialising = false;
+      if (emptyEl) {
+        emptyEl.innerHTML = '<div style="color:#A32D2D;font-weight:600">Map failed to load</div>'
+          + '<div style="font-size:11px;color:#6B7280">' + escHtml(err.message || 'Unknown error') + '</div>';
+      }
+    });
+}
+
+function renderAllLayers(){
+  if (!hmInitialised || !hmInstance) return;
+  // 1. Demand heatmap
+  if (marketMapLayers.demand) {
+    renderHeatmap();
+  } else {
+    // Clear heatmap markers + labels but keep infrastructure
+    hmMarkers.forEach(function(m){ m.setMap(null); });
+    hmLabels.forEach(function(l){ l.setMap(null); });
+    hmMarkers = [];
+    hmLabels = [];
+  }
+  // 2. Radius pipeline
+  renderRadiusLayer();
+  // 3. Group homes (VIC)
+  renderGhomesLayer();
+  // 4. Existing SDA (NSW)
+  renderExistingLayer();
+  // Combined counter line (bottom-right of toggle bar)
+  updateLayerCounts();
+}
+
+function updateLayerCounts(){
+  var el = document.getElementById('hmcounts');
+  if (!el) return;
+  var parts = [];
+  if (marketMapLayers.demand) parts.push(hmMarkers.length + ' demand');
+  if (marketMapLayers.radius) parts.push(radiusMarkers.length + ' Radius');
+  if (marketMapLayers.ghomes) parts.push(ghomesMarkers.length + ' group home');
+  if (marketMapLayers.existing) parts.push(existingMarkers.length + ' existing SDA');
+  el.textContent = parts.length ? parts.join(' \u2022 ') : 'No layers active';
+}
+
+// === RADIUS PIPELINE LAYER ================================================
+// Records have address but no coords — uses geocode cache lazily on first draw.
+function renderRadiusLayer(){
+  radiusMarkers.forEach(function(m){ m.setMap(null); });
+  radiusMarkers = [];
+  if (!marketMapLayers.radius) return;
+  if (typeof RADIUS_PIPELINE === 'undefined') return;
+  var stateFilter = (document.getElementById('hmst')||{}).value || '';
+  var src = RADIUS_PIPELINE.filter(function(r){ return !stateFilter || r.state === stateFilter; });
+  var uncached = [];
+  src.forEach(function(r){
+    var coords = hmGetCoords(r.addr);
+    if (coords) {
+      drawRadiusPin(r, coords);
+    } else {
+      uncached.push(r);
+    }
+  });
+  // Geocode missing addresses in the background (capped at 80 per call to be safe)
+  if (uncached.length && !window._radiusGeocoding) {
+    window._radiusGeocoding = true;
+    var batch = uncached.slice(0, 80);
+    var i = 0, active = 0, done = 0;
+    function next(){
+      if (i >= batch.length && active === 0) {
+        window._radiusGeocoding = false;
+        if (marketMapLayers.radius) renderRadiusLayer(); // redraw with new coords
+        return;
+      }
+      while (active < 4 && i < batch.length) {
+        var r = batch[i++];
+        active++;
+        hmGeocodeOne(r.addr).then((function(rec){
+          return function(c){
+            if (c) hmSetCoords(rec.addr, c);
+            done++;
+            active--;
+            next();
+          };
+        })(r));
+      }
+    }
+    next();
+  }
+}
+function drawRadiusPin(r, coords){
+  var marker = new google.maps.Marker({
+    position: coords,
+    map: hmInstance,
+    title: 'Radius — '+(r.dwelling||'')+' — '+r.addr,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: '#002060',
+      fillOpacity: 0.92,
+      strokeColor: '#ffffff',
+      strokeWeight: 2,
+      scale: 9
+    },
+    label: { text:'R', color:'#ffffff', fontSize:'10px', fontWeight:'700' }
+  });
+  marker.addListener('click', function(){
+    var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
+      + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+      +   '<span style="display:inline-block;padding:2px 6px;background:#002060;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">RADIUS PIPELINE</span>'
+      + '</div>'
+      + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(r.addr)+'</div>'
+      + '<div style="font-size:11px;line-height:1.6">'
+      +   '<div>Dwelling: <b>'+escHtml(r.dwelling||'\u2014')+'</b></div>'
+      +   '<div>State: <b>'+(r.state||'').toUpperCase()+'</b></div>'
+      + '</div>'
+      + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
+      +   '<a href="https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(r.addr)+'" target="_blank" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">View on Google Maps \u2197</a>'
+      + '</div></div>';
+    hmInfoWindow.setContent(html);
+    hmInfoWindow.open(hmInstance, marker);
+  });
+  radiusMarkers.push(marker);
+}
+
+// === GROUP HOMES (VIC) LAYER ==============================================
+// Coordinates are baked into the dataset so no geocoding required.
+function renderGhomesLayer(){
+  ghomesMarkers.forEach(function(m){ m.setMap(null); });
+  ghomesMarkers = [];
+  if (!marketMapLayers.ghomes) return;
+  if (typeof GROUP_HOMES_VIC === 'undefined') return;
+  var stateFilter = (document.getElementById('hmst')||{}).value || '';
+  if (stateFilter && stateFilter !== 'vic') return; // group homes are VIC only
+  GROUP_HOMES_VIC.forEach(function(g){
+    var marker = new google.maps.Marker({
+      position: { lat: g.lat, lng: g.lng },
+      map: hmInstance,
+      title: 'Group home — '+g.addr,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: '#7C3AED',
+        fillOpacity: 0.85,
+        strokeColor: '#ffffff',
+        strokeWeight: 1.5,
+        scale: 7
+      }
+    });
+    marker.addListener('click', function(){
+      var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+        +   '<span style="display:inline-block;padding:2px 6px;background:#7C3AED;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">GROUP HOME (VIC)</span>'
+        + '</div>'
+        + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(g.addr)+'</div>'
+        + '<div style="font-size:11px;line-height:1.6">'
+        +   '<div>Suburb: <b>'+escHtml(g.suburb||'\u2014')+'</b> ('+(g.pc||'')+')</div>'
+        +   '<div>Land: <b>'+(g.area?Math.round(g.area)+' m\u00B2':'\u2014')+'</b></div>'
+        +   '<div>Frontage: <b>'+(g.frontage?g.frontage.toFixed(1)+' m':'\u2014')+'</b></div>'
+        +   '<div>Zone: <b>'+escHtml(g.zone||'\u2014')+'</b></div>'
+        + '</div>'
+        + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
+        +   '<a href="https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(g.addr)+'" target="_blank" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">View on Google Maps \u2197</a>'
+        + '</div></div>';
+      hmInfoWindow.setContent(html);
+      hmInfoWindow.open(hmInstance, marker);
+    });
+    ghomesMarkers.push(marker);
+  });
+}
+
+// === EXISTING SDA (NSW) LAYER =============================================
+// Direct competing supply — already-filled SDA dwellings.
+function renderExistingLayer(){
+  existingMarkers.forEach(function(m){ m.setMap(null); });
+  existingMarkers = [];
+  if (!marketMapLayers.existing) return;
+  if (typeof EXISTING_SDA_NSW === 'undefined') return;
+  var stateFilter = (document.getElementById('hmst')||{}).value || '';
+  if (stateFilter && stateFilter !== 'nsw') return; // existing SDA is NSW only
+  EXISTING_SDA_NSW.forEach(function(e){
+    var marker = new google.maps.Marker({
+      position: { lat: e.lat, lng: e.lng },
+      map: hmInstance,
+      title: 'Existing SDA — '+e.addr,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: '#EA580C',
+        fillOpacity: 0.85,
+        strokeColor: '#ffffff',
+        strokeWeight: 1.5,
+        scale: 7
+      }
+    });
+    marker.addListener('click', function(){
+      var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
+        + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+        +   '<span style="display:inline-block;padding:2px 6px;background:#EA580C;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">EXISTING SDA (NSW)</span>'
+        + '</div>'
+        + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(e.addr)+'</div>'
+        + '<div style="font-size:11px;color:#A32D2D;font-style:italic;margin-bottom:6px">Filled \u2014 direct competing SDA supply</div>'
+        + '<div style="font-size:11px;line-height:1.6">'
+        +   '<div>Suburb: <b>'+escHtml(e.suburb||'\u2014')+'</b> ('+(e.pc||'')+')</div>'
+        +   '<div>Land: <b>'+(e.area?Math.round(e.area)+' m\u00B2':'\u2014')+'</b></div>'
+        +   '<div>Frontage: <b>'+(e.frontage?e.frontage.toFixed(1)+' m':'\u2014')+'</b></div>'
+        +   '<div>Zone: <b>'+escHtml(e.zone||'\u2014')+'</b></div>'
+        + '</div>'
+        + '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee">'
+        +   '<a href="https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(e.addr)+'" target="_blank" style="color:#185FA5;font-weight:700;font-size:11px;text-decoration:none">View on Google Maps \u2197</a>'
+        + '</div></div>';
+      hmInfoWindow.setContent(html);
+      hmInfoWindow.open(hmInstance, marker);
+    });
+    existingMarkers.push(marker);
+  });
+}
+
+// Update counts after the heatmap renders (intercepts hmcounts updates from inside renderHeatmap)
+// We do this by overriding the original counts setter via updateLayerCounts which always
+// reads current marker arrays. So renderHeatmap can do whatever it wants; we re-calculate.
+// However: renderHeatmap currently writes to #hmcounts at the end. To avoid stomping on each
+// other, we let renderHeatmap write its own count, then overwrite via updateLayerCounts.
+// updateLayerCounts is called from renderAllLayers AFTER all four layers have rendered.
+// =============================================================================
 
 
 // Tiny HTML-escape helper for use in info windows

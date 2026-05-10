@@ -5002,7 +5002,8 @@ function buildDetail(pr,tgt){
     + '</div>'
     + '<div style="font-size:10px;color:#888">Positive = extra cost &nbsp;|&nbsp; Negative = saving/credit</div>'
     + '</div>'
-    + '<button onclick="exportCSV('+pr.id+',event)" style="padding:8px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">Download CSV</button>'
+    + '<button onclick="exportPipelineXLSX('+pr.id+',event)" style="padding:10px;background:#EA580C;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">&#10142; Send to BA pipeline</button>'
+    + '<button onclick="exportCSV('+pr.id+',event)" style="padding:8px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">Download CSV</button>'
     + '<button onclick="exportPDFCover('+pr.id+',event)" style="padding:8px;background:#A32D2D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128196; Download PDF Cover Sheet</button>'
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'    + '<button id="docx-btn-'+pr.id+'" onclick="exportDOCX('+pr.id+',event)" style="padding:8px;background:#185FA5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;width:100%">&#128196; Download Word Report</button>'    + '</div>'
     + '</div>';
@@ -5412,6 +5413,125 @@ function exportCSV(id,e){
   var a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
   a.download='SDA_'+String(pr.addr).replace(/[^a-z0-9]/gi,'_').substring(0,30)+'.csv';a.click();
 }
+
+// === Send to BA pipeline ==========================================
+// Generates a single-row XLSX matching the BA team's "Purchase List" sheet
+// in their master tracker. Buying team downloads, opens, copy-pastes the
+// data row into the master tracker. Columns must match exactly:
+//   Date Submitted | Address | Sale Type | Auction date | Price Range |
+//   Max Offer Price | Build Cost | Consultants Cost | TDC $ | Design |
+//   Net Yeild % | Net Income IL | Net Yield FA | Net Income FA |
+//   Net Yield HPS | Net Income HPS | SA4 Area | SA4 Demand | SA3 Demand |
+//   Planning Permit Required | Purchase YES/NO | Further Comments
+// IL/FA/HPS yields are computed for the chosen build model (the user's
+// selected model in the table, or the highest-return model if none picked).
+function exportPipelineXLSX(id, e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  id = typeof id === 'string' ? parseInt(id, 10) : id;
+  var pr = props.find(function(p){ return p.id == id; });
+  if (!pr) { alert('Property not found.'); return; }
+  if (!window.XLSX) { alert('XLSX library not loaded yet. Try again in a moment.'); return; }
+  serverLog('pipeline_export', {addr: pr.addr, state: pr.state, sa4: pr.sa4, price: pr.price});
+
+  var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
+  if (!sda) { alert('No SDA pricing for this property\'s SA4 — cannot send to pipeline.'); return; }
+  var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
+  var livePrice = propPrice[id] || pr.price;
+  var extrasTotal = getExtrasTotal(id);
+
+  // Pick which build model to send. Priority:
+  //  1. Global Build model filter if user has it set (fmod)
+  //  2. Otherwise the property's bestModel (highest unlevered return)
+  var fmod = document.getElementById('fmod') ? document.getElementById('fmod').value : '';
+  var chosenModel = fmod || pr.bestModel || '2p';
+
+  // Compute the chosen model 3 ways (IL, FA, HPS) so the row carries
+  // all three yield/income variants the BA team's tracker expects.
+  function calcVariant(catCode) {
+    return calcModel(livePrice, pr.land, sda, chosenModel, p, catCode, extrasTotal);
+  }
+  var mIL  = calcVariant('il');
+  var mFA  = calcVariant('fa');
+  var mHPS = calcVariant('hps');
+  // Use whichever variant returned non-null for build/cons/total (they're all
+  // identical for those fields — only sdaRate/gross/net/ret differ by category)
+  var mAny = mIL || mFA || mHPS;
+  if (!mAny) { alert('Cannot calculate feasibility for this property — check land size and SA4 pricing.'); return; }
+
+  // "Design" column expects: "2P House", "3P House", or "Duplex 2P"
+  var designLabel = chosenModel === 'dp' ? 'Duplex 2P'
+                  : chosenModel === '3p' ? '3P House'
+                  : '2P House';
+
+  // SA3 demand — total participants needing SDA in this property's SA3
+  var sa3Name = resolveSA3Name(pr.addr, pr.state, typeof pr.sa3 === 'string' ? pr.sa3 : '');
+  var sa3Obj  = getSA3(sa3Name, pr.sa4, pr.state);
+  var sa3Demand = sa3Obj ? (sa3Obj.total || 0) : '';
+
+  // Today as Excel-compatible date
+  var today = new Date();
+
+  // Build header + data rows. Headers must match the BA tracker EXACTLY.
+  var headers = [
+    'Date Submitted', 'Address', 'Sale Type', 'Auction date', 'Price Range',
+    'Max Offer Price', 'Build Cost', 'Consultants Cost', 'TDC $', 'Design',
+    'Net Yeild %', 'Net Income IL', 'Net Yield FA', 'Net Income FA',
+    'Net Yield HPS', 'Net Income HPS', 'SA4 Area', 'SA4 Demand', 'SA3 Demand',
+    'Planning Permit Required', 'Purchase YES/NO', 'Further Comments'
+  ];
+  var dataRow = [
+    today,
+    pr.addr,
+    pr.sale_type || '',
+    '',                                    // Auction date — BA fills in
+    pr.price,                              // Price Range — listed price
+    Math.round(livePrice),                 // Max Offer Price — live/offer price
+    Math.round(mAny.build),
+    Math.round(mAny.cons),
+    Math.round(mAny.total),
+    designLabel,
+    mIL  ? mIL.ret  : '',                  // Net Yeild %  (IL)
+    mIL  ? Math.round(mIL.net)  : '',      // Net Income IL
+    mFA  ? mFA.ret  : '',                  // Net Yield FA
+    mFA  ? Math.round(mFA.net)  : '',      // Net Income FA
+    mHPS ? mHPS.ret : '',                  // Net Yield HPS
+    mHPS ? Math.round(mHPS.net) : '',      // Net Income HPS
+    pr.sa4 || '',
+    (sda && typeof sda.d === 'number') ? sda.d : '',
+    sa3Demand,
+    '',                                    // Planning Permit Required — BA fills in
+    '',                                    // Purchase YES/NO — BA fills in
+    ''                                     // Further Comments — BA fills in
+  ];
+
+  // Build the workbook
+  var aoa = [headers, dataRow];
+  var ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Format the date cell as a date and the % cells as percentages
+  if (ws['A2']) ws['A2'].t = 'd';
+  ['K2','M2','O2'].forEach(function(addr){ if (ws[addr]) ws[addr].z = '0.00%'; });
+  ['E2','F2','G2','H2','I2','L2','N2','P2'].forEach(function(addr){ if (ws[addr]) ws[addr].z = '#,##0'; });
+  // Reasonable column widths
+  ws['!cols'] = [
+    {wch:13}, {wch:42}, {wch:13}, {wch:13}, {wch:13}, {wch:14}, {wch:12},
+    {wch:14}, {wch:14}, {wch:11}, {wch:11}, {wch:13}, {wch:11}, {wch:13},
+    {wch:11}, {wch:13}, {wch:30}, {wch:11}, {wch:11}, {wch:21}, {wch:15}, {wch:30}
+  ];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Purchase List');
+
+  var clean = String(pr.addr).replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_').substring(0, 40);
+  XLSX.writeFile(wb, 'SDA_Pipeline_' + clean + '.xlsx');
+
+  // Toast confirming the send
+  var toast = document.createElement('div');
+  toast.textContent = '\u2713 Sent to pipeline \u2014 paste the row into the BA tracker';
+  toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#EA580C;color:#fff;padding:11px 22px;border-radius:8px;font-size:13px;font-weight:700;z-index:9999;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.remove(); }, 4500);
+}
+
+function exportPDFCover(id,e){
 
 function exportPDFCover(id,e){
   if(e){e.preventDefault();e.stopPropagation();}

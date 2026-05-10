@@ -6789,19 +6789,27 @@ function hmBuildSA4Summary() {
   return arr;
 }
 
-// Resolve a centroid for an SA4 from the geocode cache. Returns null if no
-// properties in that SA4 have been geocoded yet.
+// Resolve a centroid for an SA4. Primary source: hand-curated SA4_CENTROIDS
+// table (accurate to a few km for cities, ~50km for rural SA4s). Fallback to
+// average of geocoded property positions ONLY if the SA4 is missing from the
+// table (defensive — covers any SA4 we don't yet have a centroid for).
 function hmGetSA4Centroid(sa4Summary, sourceProps) {
-  var coords = [];
-  sourceProps.forEach(function(pr){
-    if (pr.sa4 !== sa4Summary.sa4) return;
-    var c = hmGetCoords(pr.addr);
-    if (c) coords.push(c);
-  });
-  if (!coords.length) return null;
-  var lat = 0, lng = 0;
-  coords.forEach(function(c){ lat += c.lat; lng += c.lng; });
-  return { lat: lat / coords.length, lng: lng / coords.length };
+  // Strict static lookup. The geocode-averaging fallback was removed because
+  // it produced badly-positioned circles when property geocodes were
+  // ambiguous (e.g. Brisbane Inner City circle ending up near Townsville).
+  // If an SA4 is missing from the table, we'd rather skip it than misplace it.
+  if (typeof SA4_CENTROIDS !== 'undefined' && SA4_CENTROIDS[sa4Summary.sa4]) {
+    return SA4_CENTROIDS[sa4Summary.sa4];
+  }
+  // Log missing SA4 once so it's clear in console where to add it
+  if (typeof window !== 'undefined') {
+    window._missingCentroids = window._missingCentroids || {};
+    if (!window._missingCentroids[sa4Summary.sa4]) {
+      window._missingCentroids[sa4Summary.sa4] = true;
+      console.warn('Heatmap: no centroid for SA4 "' + sa4Summary.sa4 + '" — circle will be hidden');
+    }
+  }
+  return null;
 }
 
 // Gap → fill colour. Matches the rest of the tool: green = undersupply (good
@@ -6847,12 +6855,10 @@ function renderHeatmap(){
   var stateFilter = document.getElementById('hmst').value;
   var sourceProps = (props || []).filter(function(pr){ return !stateFilter || pr.state === stateFilter; });
 
-  // Determine which SA4s already have a centroid (any cached coords for any of their props)
-  var withCentroid = [], without = [];
+  // Resolve centroid for each SA4 from the static lookup. SA4s without a
+  // centroid in SA4_CENTROIDS are skipped during draw.
   summary.forEach(function(s){
-    var c = hmGetSA4Centroid(s, sourceProps);
-    if (c) { s.centroid = c; withCentroid.push(s); }
-    else   { without.push(s); }
+    s.centroid = hmGetSA4Centroid(s, sourceProps);
   });
 
   function drawAll() {
@@ -6950,49 +6956,9 @@ function renderHeatmap(){
     }
   }
 
-  // If we have at least one centroid for every SA4, draw immediately
-  if (without.length === 0) { drawAll(); return; }
-
-  // Otherwise we need to geocode ONE property per SA4 missing a centroid.
-  // Pick the sample property already chosen during summary build.
-  if (hmGeocodingActive) { drawAll(); return; }
-  // Cap at 80 SA4 geocodes per batch (very rare to need more)
-  var toGeocode = without.slice(0, 80);
-  if (countsEl) countsEl.textContent = 'Geocoding ' + toGeocode.length + ' SA4 area' + (toGeocode.length===1?'':'s') + '\u2026';
-  hmGeocodingActive = true;
-  var i = 0, active = 0, done = 0;
-  function next() {
-    if (i >= toGeocode.length && active === 0) {
-      hmGeocodingActive = false;
-      // Re-resolve centroids for SA4s we just geocoded
-      summary.forEach(function(s){
-        if (!s.centroid) {
-          var c = hmGetSA4Centroid(s, sourceProps);
-          if (c) s.centroid = c;
-        }
-      });
-      drawAll();
-      return;
-    }
-    while (active < 4 && i < toGeocode.length) {
-      var s = toGeocode[i++];
-      var addr = s.sample.addr;
-      active++;
-      hmGeocodeOne(addr).then((function(a){
-        return function(coords){
-          if (coords) hmSetCoords(a, coords);
-          done++;
-          if (countsEl && done < toGeocode.length) {
-            countsEl.textContent = 'Geocoding ' + done + '/' + toGeocode.length + '\u2026';
-          }
-          active--;
-          next();
-        };
-      })(addr));
-    }
-  }
-  next();
-  // Draw whatever we already have so the user sees something while geocoding runs
+  // Draw immediately. Centroids come from the static SA4_CENTROIDS table only;
+  // SA4s missing from the table are skipped (with a console warning) rather
+  // than geocoded — geocode-derived centroids were unreliable.
   drawAll();
 }
 
@@ -7015,6 +6981,83 @@ function hmFilterScreenerToSA4(sa4){
   if (screenerTabBtn) sw('screen', screenerTabBtn);
 }
 
+
+// =============================================================================
+// SA4 centroids — geographic centres of each SA4 region, used to position the
+// demand heatmap circles. Sourced from approximate centres of ABS ASGS 2021
+// SA4 boundaries; accurate to within a few km for cities and ~50km for rural
+// SA4s. Hard-coded because deriving from property geocodes was unreliable
+// (one bad geocode could drag a centroid hundreds of km off).
+// =============================================================================
+var SA4_CENTROIDS = {
+  // NSW
+  'Capital Region': { lat: -35.50, lng: 149.50 },
+  'Central Coast': { lat: -33.42, lng: 151.34 },
+  'Central West': { lat: -33.10, lng: 148.80 },
+  'Coffs Harbour - Grafton': { lat: -30.10, lng: 152.95 },
+  'Far West and Orana': { lat: -31.40, lng: 145.50 },
+  'Hunter Valley exc Newcastle': { lat: -32.55, lng: 151.30 },
+  'Illawarra': { lat: -34.55, lng: 150.80 },
+  'Mid North Coast': { lat: -31.60, lng: 152.70 },
+  'Murray': { lat: -35.30, lng: 145.50 },
+  'New England and North West': { lat: -30.20, lng: 150.80 },
+  'Newcastle and Lake Macquarie': { lat: -32.95, lng: 151.70 },
+  'Richmond - Tweed': { lat: -28.85, lng: 153.30 },
+  'Riverina': { lat: -34.80, lng: 147.30 },
+  'Southern Highlands and Shoalhaven': { lat: -34.90, lng: 150.30 },
+  'Sydney - Baulkham Hills and Hawkesbury': { lat: -33.62, lng: 150.95 },
+  'Sydney - Blacktown': { lat: -33.77, lng: 150.92 },
+  'Sydney - City and Inner South': { lat: -33.89, lng: 151.20 },
+  'Sydney - Eastern Suburbs': { lat: -33.89, lng: 151.25 },
+  'Sydney - Inner South West': { lat: -33.93, lng: 151.04 },
+  'Sydney - Inner West': { lat: -33.88, lng: 151.13 },
+  'Sydney - North Sydney and Hornsby': { lat: -33.72, lng: 151.13 },
+  'Sydney - Northern Beaches': { lat: -33.68, lng: 151.27 },
+  'Sydney - Outer South West': { lat: -34.05, lng: 150.74 },
+  'Sydney - Outer West and Blue Mountains': { lat: -33.75, lng: 150.50 },
+  'Sydney - Parramatta': { lat: -33.80, lng: 151.00 },
+  'Sydney - Ryde': { lat: -33.80, lng: 151.10 },
+  'Sydney - South West': { lat: -33.95, lng: 150.92 },
+  'Sydney - Sutherland': { lat: -34.05, lng: 151.10 },
+  // QLD
+  'Brisbane - East': { lat: -27.48, lng: 153.18 },
+  'Brisbane - North': { lat: -27.38, lng: 153.00 },
+  'Brisbane - South': { lat: -27.55, lng: 153.05 },
+  'Brisbane - West': { lat: -27.50, lng: 152.92 },
+  'Brisbane Inner City': { lat: -27.47, lng: 153.02 },
+  'Cairns': { lat: -16.95, lng: 145.75 },
+  'Central Queensland': { lat: -23.40, lng: 150.50 },
+  'Darling Downs - Maranoa': { lat: -27.50, lng: 150.30 },
+  'Gold Coast': { lat: -28.00, lng: 153.40 },
+  'Ipswich': { lat: -27.62, lng: 152.75 },
+  'Logan - Beaudesert': { lat: -27.78, lng: 153.10 },
+  'Mackay - Isaac - Whitsunday': { lat: -21.10, lng: 149.20 },
+  'Moreton Bay - North': { lat: -27.10, lng: 152.95 },
+  'Moreton Bay - South': { lat: -27.30, lng: 152.95 },
+  'Queensland - Outback': { lat: -22.00, lng: 142.00 },
+  'Sunshine Coast': { lat: -26.65, lng: 153.05 },
+  'Toowoomba': { lat: -27.55, lng: 151.95 },
+  'Townsville': { lat: -19.30, lng: 146.80 },
+  'Wide Bay': { lat: -25.50, lng: 152.50 },
+  // VIC
+  'Ballarat': { lat: -37.55, lng: 143.85 },
+  'Bendigo': { lat: -36.75, lng: 144.30 },
+  'Geelong': { lat: -38.15, lng: 144.35 },
+  'Hume': { lat: -36.50, lng: 145.80 },
+  'Latrobe - Gippsland': { lat: -38.20, lng: 146.80 },
+  'Melbourne - Inner East': { lat: -37.83, lng: 145.10 },
+  'Melbourne - Inner South': { lat: -37.90, lng: 145.05 },
+  'Melbourne - Inner': { lat: -37.83, lng: 144.97 },
+  'Melbourne - North East': { lat: -37.65, lng: 145.10 },
+  'Melbourne - North West': { lat: -37.65, lng: 144.85 },
+  'Melbourne - Outer East': { lat: -37.83, lng: 145.30 },
+  'Melbourne - South East': { lat: -38.05, lng: 145.25 },
+  'Melbourne - West': { lat: -37.78, lng: 144.65 },
+  'Mornington Peninsula': { lat: -38.30, lng: 145.05 },
+  'North West': { lat: -36.30, lng: 142.30 },
+  'Shepparton': { lat: -36.40, lng: 145.40 },
+  'Warrnambool and South West': { lat: -38.20, lng: 142.50 }
+};
 
 // =============================================================================
 // MARKET MAP — multi-layer wrapper around the demand heatmap.

@@ -6759,9 +6759,12 @@ function renderSdaMap(){
       + '<strong style="color:#ea580c">'+counts.permitted+'</strong> Permitted';
   }
 
-  // Auto-fit to visible markers (but don't over-zoom on a single pin)
-  if (anyShown) {
+  // Auto-fit only on first render or when search/state filter changes.
+  // Layer toggles preserve the current view.
+  var fitKey = stateFilter + '|' + query;
+  if (anyShown && sdaMapInstance.__lastFitKey !== fitKey) {
     sdaMapInstance.fitBounds(bounds);
+    sdaMapInstance.__lastFitKey = fitKey;
     if (sdaMapMarkers.length === 1) {
       // Single pin — back zoom off so we don't end up at street level
       var listener = google.maps.event.addListenerOnce(sdaMapInstance, 'idle', function(){

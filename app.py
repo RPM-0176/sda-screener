@@ -264,11 +264,13 @@ body{font-family:Arial,sans-serif;background:#f3f4f6}
 .layer-title{font-size:13px;font-weight:700;color:#002060;margin:18px 0 10px;padding:6px 10px;border-radius:4px;display:inline-flex;align-items:center;gap:6px}
 .layer-title.radius{background:#dbeafe;color:#1e40af}
 .layer-title.existing{background:#dcfce7;color:#166534}
-.layer-title.permitted{background:#fed7aa;color:#9a3412}
+.layer-title.ghomes{background:#ede9fe;color:#5b21b6}
+.layer-title.permitted{background:#fef9c3;color:#854d0e}
 .dot{width:10px;height:10px;border-radius:50%}
 .dot.radius{background:#1e40af}
 .dot.existing{background:#0F6E56}
-.dot.permitted{background:#ea580c}
+.dot.ghomes{background:#7C3AED}
+.dot.permitted{background:#EAB308}
 .upload-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px}
 .state-card{border:2px solid #e5e7eb;border-radius:8px;padding:12px;text-align:center}
 .state-card.loaded{border-color:#0F6E56;background:#f0fdf4}
@@ -301,7 +303,7 @@ body{font-family:Arial,sans-serif;background:#f3f4f6}
 
   <div class="card">
     <h2>SDA Market Map data</h2>
-    <p class="help">Three pin layers for the SDA Market Map: <strong>Radius</strong> (your own pipeline + built projects), <strong>Existing SDA</strong> (operating SDA + group homes), <strong>Permitted</strong> (approved but not yet built). Upload one CSV per layer-state combination. Each upload <strong>replaces</strong> all pins for that layer+state. CSVs should be LandChecker-format with at minimum: Address, Suburb, State, Coordinates (the lng,lat pair).</p>
+    <p class="help">Four pin layers for the SDA Market Map: <strong>Radius</strong> (your own pipeline + built projects), <strong>Existing SDA</strong> (operating, filled SDA dwellings), <strong>Group Homes</strong> (non-SDA disability accommodation), <strong>Permitted/approved</strong> (approved but not yet built). Upload one CSV per layer-state combination. Each upload <strong>replaces</strong> all pins for that layer+state. CSVs should be LandChecker-format with at minimum: Address, Suburb, State, Coordinates (the lng,lat pair).</p>
     <div id="layer-areas"></div>
   </div>
 </div>
@@ -313,10 +315,10 @@ var states = ['vic','nsw','qld'];
 var stateLabels = {vic:'VIC',nsw:'NSW',qld:'QLD'};
 var layers = [
   {key:'radius',    label:'Radius pipeline / built'},
-  {key:'existing',  label:'Existing SDA + group homes'},
+  {key:'existing',  label:'Existing SDA'},
+  {key:'ghomes',    label:'Group Homes'},
   {key:'permitted', label:'Permitted / approved'}
 ];
-
 if(msg){
   var d = document.getElementById('msg-area');
   d.innerHTML = '<div class="msg '+msgType+'">'+decodeURIComponent(msg.replace(/[+]/g,' '))+'</div>';
@@ -1271,7 +1273,7 @@ def upload_sda_market():
     Form fields: layer (radius|existing|permitted), state (vic|nsw|qld), csvfile"""
     layer = (request.form.get('layer') or '').lower()
     state = (request.form.get('state') or '').lower()
-    if layer not in ('radius', 'existing', 'permitted'):
+    if layer not in ('radius', 'existing', 'ghomes', 'permitted'):
         return redirect('/admin/upload_sda_page?msg=Invalid+layer&msg_type=er')
     if state not in ('vic', 'nsw', 'qld'):
         return redirect('/admin/upload_sda_page?msg=Invalid+state&msg_type=er')
@@ -1358,7 +1360,7 @@ def api_sda_market():
     sql = ('SELECT id, layer, state, address, suburb, postcode, area_m2, frontage_m, '
            'planning_zones, notes, lat, lng FROM sda_market WHERE lat IS NOT NULL AND lng IS NOT NULL')
     args = []
-    if layer in ('radius', 'existing', 'permitted'):
+    if layer in ('radius', 'existing', 'ghomes', 'permitted'):
         sql += ' AND layer=?'
         args.append(layer)
     if state in ('vic', 'nsw', 'qld'):
@@ -1420,7 +1422,7 @@ def api_sda_nearby():
     """, (lat - dlat, lat + dlat, lng - dlng, lng + dlng)).fetchall()
     db.close()
 
-    out = {'radius': [], 'existing': [], 'permitted': []}
+    out = {'radius': [], 'existing': [], 'ghomes': [], 'permitted': []}
     for r in rows:
         d = _haversine_km(lat, lng, r['lat'], r['lng'])
         if d > radius_km:

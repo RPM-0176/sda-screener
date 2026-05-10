@@ -245,19 +245,19 @@ tr.dr:hover td{background:#fafaf9}
       <span class="lyrdot" style="background:#0F6E56"></span>Demand heatmap
     </button>
     <button id="lyr-radius" class="lyrbtn" onclick="toggleLayer('radius')">
-      <span class="lyrdot" style="background:#002060"></span>Radius pipeline (52)
+      <span class="lyrdot" style="background:#002060"></span>Radius pipeline <span id="lyr-radius-count" style="opacity:0.7"></span>
     </button>
     <button id="lyr-ghomes" class="lyrbtn" onclick="toggleLayer('ghomes')">
-      <span class="lyrdot" style="background:#7C3AED"></span>Group homes &mdash; VIC (100)
+      <span class="lyrdot" style="background:#7C3AED"></span>Group homes <span id="lyr-ghomes-count" style="opacity:0.7"></span>
     </button>
     <button id="lyr-existing" class="lyrbtn" onclick="toggleLayer('existing')">
-      <span class="lyrdot" style="background:#EA580C"></span>Existing SDA &mdash; NSW (127)
+      <span class="lyrdot" style="background:#EA580C"></span>Existing SDA <span id="lyr-existing-count" style="opacity:0.7"></span>
     </button>
     <span id="hmcounts" style="font-size:11px;color:#6B7280;margin-left:auto"></span>
   </div>
   <!-- Filters row -->
   <div class="filters" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));align-items:end">
-    <div class="fg"><label>State filter</label>
+    <div class="fg"><label>State filter (heatmap only)</label>
       <select id="hmst" onchange="renderAllLayers()">
         <option value="">All states</option>
         <option value="vic">VIC</option>
@@ -283,7 +283,7 @@ tr.dr:hover td{background:#fafaf9}
       <div>Toggle layers above to overlay demand, your portfolio, group homes, and existing SDA.</div>
     </div>
   </div>
-  <p style="font-size:10px;color:#888;margin-top:8px">Demand heatmap circles are SA4 areas; click to filter Screener. Pinned dwellings have address, planning zone, and "View on Maps" link in their info windows.</p>
+  <p style="font-size:10px;color:#888;margin-top:8px">Demand heatmap circles are SA4 areas (filtered by state above); click to filter Screener. Pipeline / group home / existing SDA layers show all records nationwide regardless of state filter — zoom in to focus.</p>
 </div>
 
 <div id="panel-pricing" class="panel">
@@ -3555,8 +3555,8 @@ var RADIUS_PIPELINE=[
   {name:'4 James Street Ringwood',addr:'4 James Street, Ringwood VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
   {name:'5 James Street Ringwood',addr:'5 James Street, Ringwood VIC, Australia',dwelling:'3 P House',type:'3P',state:'vic'},
   {name:'328 OHEA STREET PASCOE VALE SOUTH VIC 3044',addr:'328 Ohea Street, Pascoe Vale South VIC, Australia',dwelling:'2 P House',type:'2P',state:'vic'},
-];// Group Homes (VIC) — non-SDA disability accommodation, competing supply
-var GROUP_HOMES_VIC=[
+];// Group Homes — non-SDA disability accommodation, competing supply (nationwide; state field on each record)
+var GROUP_HOMES=[
   {addr:'32 Bloomfield Road, Noble Park Vic 3174',suburb:'NOBLE PARK',pc:3174,lat:-37.9764,lng:145.178,area:643.82,frontage:15.59,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
   {addr:'76 Normanby Avenue, Thornbury Vic 3071',suburb:'THORNBURY',pc:3071,lat:-37.7584,lng:144.992,area:330.37,frontage:7.62,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
   {addr:'24 Milton Street, West Footscray Vic 3012',suburb:'WEST FOOTSCRAY',pc:3012,lat:-37.7968,lng:144.88,area:266.95,frontage:11.36,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
@@ -3657,8 +3657,8 @@ var GROUP_HOMES_VIC=[
   {addr:'20 Alvena Crescent, Heathmont Vic 3135',suburb:'HEATHMONT',pc:3135,lat:-37.8237,lng:145.249,area:696.79,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
   {addr:'15 Boreham Street, Sunshine Vic 3020',suburb:'SUNSHINE',pc:3020,lat:-37.7998,lng:144.823,area:557.49,frontage:15.24,zone:'NEIGHBOURHOOD RESIDENTIAL ZONE',state:'vic'},
   {addr:'8 Eric Avenue, Mordialloc Vic 3195',suburb:'MORDIALLOC',pc:3195,lat:-37.9999,lng:145.089,area:639.16,frontage:16.76,zone:'GENERAL RESIDENTIAL ZONE',state:'vic'},
-];// Existing SDA (NSW) — filled SDA dwellings, direct competing supply
-var EXISTING_SDA_NSW=[
+];// Existing SDA — filled SDA dwellings, direct competing supply (nationwide; state field on each record)
+var EXISTING_SDA=[
   {addr:'11 Elm Street, Burwood Heights Nsw 2136',suburb:'BURWOOD HEIGHTS',pc:2136,lat:-33.8903,lng:151.103,area:610.43,frontage:21.72,zone:'Low Density Residential',state:'nsw'},
   {addr:'10 Killarney Street, Mosman Nsw 2088',suburb:'MOSMAN',pc:2088,lat:-33.8202,lng:151.243,area:451.29,frontage:12.28,zone:'Medium Density Residential',state:'nsw'},
   {addr:'26 Bluebell Crescent, Spring Farm Nsw 2570',suburb:'SPRING FARM',pc:2570,lat:-34.0596,lng:150.73,area:501.06,frontage:9.64,zone:'General Residential',state:'nsw'},
@@ -7061,9 +7061,11 @@ var SA4_CENTROIDS = {
 
 // =============================================================================
 // MARKET MAP — multi-layer wrapper around the demand heatmap.
-// Adds three additional layers (Radius pipeline, Group homes VIC, Existing SDA
-// NSW) which overlay on top of the existing demand heatmap. Each layer toggles
-// independently. Layer state persists to localStorage.
+// Adds three additional layers (Radius pipeline, Group homes, Existing SDA).
+// Each layer is nationwide — records carry their own `state` field. The state
+// filter at the top of the panel controls only the demand heatmap; point
+// layers always show all records and rely on map zoom to focus.
+// Layer toggle state persists to localStorage.
 // =============================================================================
 var LAYER_KEY = 'sda_screener_market_map_layers_v1';
 var marketMapLayers = { demand:true, radius:false, ghomes:false, existing:false };
@@ -7095,6 +7097,19 @@ function syncLayerButtons(){
     if (el) el.classList.toggle('lyrbtn-on', !!marketMapLayers[k]);
   });
 }
+// Populate the small count after each layer's button label so the team can see
+// how many records are loaded across all states. Re-run if datasets change.
+function syncLayerCounts(){
+  var pairs = [
+    ['radius',  typeof RADIUS_PIPELINE !== 'undefined' ? RADIUS_PIPELINE.length : 0],
+    ['ghomes',  typeof GROUP_HOMES     !== 'undefined' ? GROUP_HOMES.length     : 0],
+    ['existing',typeof EXISTING_SDA    !== 'undefined' ? EXISTING_SDA.length    : 0]
+  ];
+  pairs.forEach(function(p){
+    var el = document.getElementById('lyr-'+p[0]+'-count');
+    if (el) el.textContent = '(' + p[1] + ')';
+  });
+}
 function toggleLayer(name){
   marketMapLayers[name] = !marketMapLayers[name];
   saveLayerState();
@@ -7106,6 +7121,7 @@ function toggleLayer(name){
 function initMarketMap(){
   loadLayerState();
   syncLayerButtons();
+  syncLayerCounts();
   // Reuse the existing heatmap init for map+infowindow setup. It calls
   // renderHeatmap() at the end which we don't want; we override below.
   if (hmInitialised) {
@@ -7188,8 +7204,8 @@ function renderRadiusLayer(){
   radiusMarkers = [];
   if (!marketMapLayers.radius) return;
   if (typeof RADIUS_PIPELINE === 'undefined') return;
-  var stateFilter = (document.getElementById('hmst')||{}).value || '';
-  var src = RADIUS_PIPELINE.filter(function(r){ return !stateFilter || r.state === stateFilter; });
+  // Show all Radius dwellings regardless of state filter — zoom to focus.
+  var src = RADIUS_PIPELINE.slice();
   var uncached = [];
   src.forEach(function(r){
     var coords = hmGetCoords(r.addr);
@@ -7260,16 +7276,15 @@ function drawRadiusPin(r, coords){
   radiusMarkers.push(marker);
 }
 
-// === GROUP HOMES (VIC) LAYER ==============================================
-// Coordinates are baked into the dataset so no geocoding required.
+// === GROUP HOMES LAYER ====================================================
+// Coordinates are baked into each record. Layer always shows all records
+// regardless of the state filter (use map zoom to focus on a region).
 function renderGhomesLayer(){
   ghomesMarkers.forEach(function(m){ m.setMap(null); });
   ghomesMarkers = [];
   if (!marketMapLayers.ghomes) return;
-  if (typeof GROUP_HOMES_VIC === 'undefined') return;
-  var stateFilter = (document.getElementById('hmst')||{}).value || '';
-  if (stateFilter && stateFilter !== 'vic') return; // group homes are VIC only
-  GROUP_HOMES_VIC.forEach(function(g){
+  if (typeof GROUP_HOMES === 'undefined') return;
+  GROUP_HOMES.forEach(function(g){
     var marker = new google.maps.Marker({
       position: { lat: g.lat, lng: g.lng },
       map: hmInstance,
@@ -7286,7 +7301,7 @@ function renderGhomesLayer(){
     marker.addListener('click', function(){
       var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
         + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
-        +   '<span style="display:inline-block;padding:2px 6px;background:#7C3AED;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">GROUP HOME (VIC)</span>'
+        +   '<span style="display:inline-block;padding:2px 6px;background:#7C3AED;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">GROUP HOME'+(g.state?' ('+g.state.toUpperCase()+')':'')+'</span>'
         + '</div>'
         + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(g.addr)+'</div>'
         + '<div style="font-size:11px;line-height:1.6">'
@@ -7305,16 +7320,15 @@ function renderGhomesLayer(){
   });
 }
 
-// === EXISTING SDA (NSW) LAYER =============================================
-// Direct competing supply — already-filled SDA dwellings.
+// === EXISTING SDA LAYER ===================================================
+// Direct competing supply — already-filled SDA dwellings. Layer always shows
+// all records regardless of the state filter (use map zoom to focus).
 function renderExistingLayer(){
   existingMarkers.forEach(function(m){ m.setMap(null); });
   existingMarkers = [];
   if (!marketMapLayers.existing) return;
-  if (typeof EXISTING_SDA_NSW === 'undefined') return;
-  var stateFilter = (document.getElementById('hmst')||{}).value || '';
-  if (stateFilter && stateFilter !== 'nsw') return; // existing SDA is NSW only
-  EXISTING_SDA_NSW.forEach(function(e){
+  if (typeof EXISTING_SDA === 'undefined') return;
+  EXISTING_SDA.forEach(function(e){
     var marker = new google.maps.Marker({
       position: { lat: e.lat, lng: e.lng },
       map: hmInstance,
@@ -7331,7 +7345,7 @@ function renderExistingLayer(){
     marker.addListener('click', function(){
       var html = '<div style="font-family:Arial;min-width:240px;max-width:300px">'
         + '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
-        +   '<span style="display:inline-block;padding:2px 6px;background:#EA580C;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">EXISTING SDA (NSW)</span>'
+        +   '<span style="display:inline-block;padding:2px 6px;background:#EA580C;color:#fff;font-size:9px;font-weight:700;border-radius:3px;letter-spacing:.04em">EXISTING SDA'+(e.state?' ('+e.state.toUpperCase()+')':'')+'</span>'
         + '</div>'
         + '<div style="font-weight:700;color:#185FA5;font-size:13px;margin-bottom:4px">'+escHtml(e.addr)+'</div>'
         + '<div style="font-size:11px;color:#A32D2D;font-style:italic;margin-bottom:6px">Filled \u2014 direct competing SDA supply</div>'

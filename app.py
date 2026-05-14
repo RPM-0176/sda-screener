@@ -65,6 +65,7 @@ form.inline{display:inline}
     <a href="/admin/activity" class="tab {% if section=='activity' %}on{% endif %}">Team activity</a>
     <a href="/admin/props" class="tab {% if section=='props' %}on{% endif %}">Property views</a>
     <a href="/admin/downloads" class="tab {% if section=='downloads' %}on{% endif %}">Downloads</a>
+    <a href="/admin/hidden" class="tab {% if section=='hidden' %}on{% endif %}">Hidden properties{% if hidden_count %} ({{ hidden_count }}){% endif %}</a>
     <a href="/admin/users" class="tab {% if section=='users' %}on{% endif %}">Manage users</a>
     <a href="/admin/upload_page" class="tab" style="background:#0F6E56;color:#fff">Upload CSV data</a>
     <a href="/admin/upload_sda_page" class="tab" style="background:#185FA5;color:#fff">Upload SDA market</a>
@@ -123,6 +124,70 @@ form.inline{display:inline}
     {% endfor %}
     </tbody></table>
   </div>
+  {% endif %}
+
+  {% if section == 'hidden' %}
+  <div class="card">
+    <h2>Hidden properties</h2>
+    <p style="font-size:11px;color:#6B7280;margin-bottom:10px">
+      Team members can hide a property from the screener by giving a reason. Restore puts it back in the screener. Hard delete removes it from the CSV permanently &mdash; this cannot be undone.
+    </p>
+    <table>
+      <thead><tr>
+        <th>When</th><th>Hidden by</th><th>State</th><th>Address</th><th>Reason</th><th style="text-align:right">Action</th>
+      </tr></thead>
+      <tbody>
+      {% for h in hidden %}
+        <tr id="hide-row-{{ h.id }}">
+          <td>{{ h.hidden_at[:16] }}</td>
+          <td>{{ h.hidden_by_name }}</td>
+          <td><span class="badge bt">{{ h.state|upper }}</span></td>
+          <td>{{ h.address }}</td>
+          <td style="max-width:340px;white-space:normal">{{ h.reason }}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button type="button" class="btn grn" onclick="hideAction({{ h.id }}, 'restore')">Restore</button>
+            <button type="button" class="btn red" onclick="hideAction({{ h.id }}, 'harddelete', '{{ h.state }}', {{ h.address|tojson }})">Hard delete</button>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" style="color:#9CA3AF;padding:12px">No properties are currently hidden.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <script>
+  function hideAction(id, kind, state, address){
+    if(kind === 'restore'){
+      if(!confirm('Restore this property to the screener?')) return;
+      fetch('/api/unhide-property', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({id: id})
+      }).then(function(r){return r.json().then(function(j){return {ok:r.ok, j:j};});})
+        .then(function(res){
+          if(res.ok){
+            var row = document.getElementById('hide-row-'+id);
+            if(row) row.remove();
+          } else {
+            alert('Restore failed: '+(res.j && res.j.error || 'unknown'));
+          }
+        }).catch(function(e){ alert('Restore error: '+e); });
+    } else if(kind === 'harddelete'){
+      if(!confirm('PERMANENTLY delete this property from the '+state.toUpperCase()+' CSV?\n\n'+address+'\n\nThis cannot be undone. The address will be removed from the data; re-uploading the CSV will bring it back.')) return;
+      fetch('/api/hard-delete-property', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({state: state, address: address})
+      }).then(function(r){return r.json().then(function(j){return {ok:r.ok, j:j};});})
+        .then(function(res){
+          if(res.ok){
+            var row = document.getElementById('hide-row-'+id);
+            if(row) row.remove();
+          } else {
+            alert('Hard delete failed: '+(res.j && res.j.error || 'unknown'));
+          }
+        }).catch(function(e){ alert('Hard delete error: '+e); });
+    }
+  }
+  </script>
   {% endif %}
 
   {% if section == 'users' %}
@@ -447,6 +512,23 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_sda_market_layer ON sda_market(layer);
         CREATE INDEX IF NOT EXISTS idx_sda_market_state ON sda_market(state);
+        -- Soft-delete: any logged-in user can hide a property with a required reason.
+        -- Admins can review the list and restore (delete this row) or hard-delete
+        -- (remove from property_data CSV blob entirely). Non-admins may un-hide
+        -- only their own hide within HIDE_UNDO_SECONDS of creating it.
+        CREATE TABLE IF NOT EXISTS hidden_properties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,
+            address TEXT NOT NULL,
+            address_key TEXT NOT NULL,        -- lowercased + trimmed address for matching
+            hidden_by_id INTEGER NOT NULL,
+            hidden_by_name TEXT NOT NULL,
+            hidden_at TEXT DEFAULT (datetime('now')),
+            reason TEXT NOT NULL,
+            FOREIGN KEY (hidden_by_id) REFERENCES users(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_hidden_properties_unique
+            ON hidden_properties(state, address_key);
     """)
     db.commit()
     existing = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -514,6 +596,94 @@ def get_dashboard_html():
         with open(p) as f:
             return f.read()
     return '<h1>Dashboard not loaded. Upload via admin panel.</h1>'
+
+
+# ===========================================================================
+# Soft-delete (hide) helpers
+# ---------------------------------------------------------------------------
+# Any logged-in user can hide a property from the screener by giving a reason.
+# Admins can review the hidden list and restore (un-hide) or hard-delete
+# (permanently remove the row from the CSV blob in property_data).
+# Non-admins can un-hide only their own hide within HIDE_UNDO_SECONDS of
+# creating it (powers the "Undo" toast immediately after hiding by mistake).
+# ===========================================================================
+HIDE_UNDO_SECONDS = 300  # 5 minutes — covers the 8-second undo toast plus slack
+
+def _address_key(addr):
+    """Normalise an address into a stable matching key.
+
+    The CSV has free-text addresses with arbitrary whitespace, quoting, and
+    case. We lower-case, collapse internal whitespace, and trim. Anything
+    fancier (postcode-stripping, fuzzy match) would risk false positives;
+    keep it strict so 'hide' only hits the exact row the user clicked."""
+    if not addr:
+        return ''
+    return ' '.join(str(addr).strip().lower().split())
+
+def _get_hidden_address_keys(state):
+    """Return a set of normalised address keys hidden for the given state."""
+    db = get_db()
+    rows = db.execute(
+        'SELECT address_key FROM hidden_properties WHERE state=?', (state,)
+    ).fetchall()
+    db.close()
+    return {r['address_key'] for r in rows}
+
+def _strip_hidden_from_csv(csv_data, hidden_keys, addr_col_candidates=('address', 'street address', 'street')):
+    """Remove rows from a CSV blob whose Address column matches a hidden key.
+
+    Mirrors the column-detection logic the dashboard uses client-side
+    (processText in dashboard.html). Returns (new_csv_text, removed_count)."""
+    if not csv_data or not hidden_keys:
+        return csv_data, 0
+    lines = csv_data.split('\n')
+    if not lines:
+        return csv_data, 0
+    # Find header line (first non-empty line)
+    header_idx = 0
+    while header_idx < len(lines) and not lines[header_idx].strip():
+        header_idx += 1
+    if header_idx >= len(lines):
+        return csv_data, 0
+    header = lines[header_idx]
+    cols = [c.strip().strip('"').lower() for c in header.split(',')]
+    addr_idx = -1
+    for cand in addr_col_candidates:
+        for i, col in enumerate(cols):
+            if col == cand or cand in col:
+                addr_idx = i
+                break
+        if addr_idx >= 0:
+            break
+    if addr_idx < 0:
+        # Couldn't find address column — leave CSV untouched rather than
+        # silently dropping rows.
+        return csv_data, 0
+    out_lines = lines[:header_idx + 1]
+    removed = 0
+    for line in lines[header_idx + 1:]:
+        if not line.strip():
+            out_lines.append(line)
+            continue
+        # Same naive CSV-with-quoted-fields parse the dashboard uses
+        cells, cur, in_q = [], '', False
+        for ch in line:
+            if ch == '"':
+                in_q = not in_q
+            elif ch == ',' and not in_q:
+                cells.append(cur.strip())
+                cur = ''
+            else:
+                cur += ch
+        cells.append(cur.strip())
+        addr_val = cells[addr_idx] if addr_idx < len(cells) else ''
+        addr_val = addr_val.replace('"', '')
+        if _address_key(addr_val) in hidden_keys:
+            removed += 1
+            continue
+        out_lines.append(line)
+    return '\n'.join(out_lines), removed
+
 
 # ===========================================================================
 # Google Maps proxy helpers
@@ -977,7 +1147,15 @@ def get_properties(state):
     row = db.execute('SELECT csv_data,row_count,uploaded_at FROM property_data WHERE state=?', (state,)).fetchone()
     db.close()
     if not row: return jsonify({'data': None, 'rows': 0, 'uploaded_at': None})
-    return jsonify({'data': row['csv_data'], 'rows': row['row_count'], 'uploaded_at': row['uploaded_at']})
+    csv_data = row['csv_data']
+    row_count = row['row_count']
+    # Strip soft-deleted (hidden) rows before sending to the dashboard.
+    # Admins reviewing the hidden list use /api/hidden-properties instead.
+    hidden_keys = _get_hidden_address_keys(state)
+    if hidden_keys:
+        csv_data, removed = _strip_hidden_from_csv(csv_data, hidden_keys)
+        row_count = max(0, row_count - removed)
+    return jsonify({'data': csv_data, 'rows': row_count, 'uploaded_at': row['uploaded_at']})
 
 @app.route('/api/properties/status')
 @login_required
@@ -1011,6 +1189,194 @@ def save_shortlist():
     db.commit()
     db.close()
     return jsonify({'ok': True})
+
+
+# ===========================================================================
+# Soft-delete (hide) API endpoints
+# ===========================================================================
+
+@app.route('/api/me')
+@login_required
+def api_me():
+    """Return identity for the logged-in user.
+
+    The dashboard uses this to decide whether to show admin-only controls
+    (Restore / Hard-delete) and to label its own hide-undo eligibility."""
+    u = request.current_user
+    return jsonify({
+        'username': u['username'],
+        'full_name': u['full_name'],
+        'role': u['role'],
+        'is_admin': u['role'] == 'admin',
+        'hide_undo_seconds': HIDE_UNDO_SECONDS,
+    })
+
+
+@app.route('/api/hide-property', methods=['POST'])
+@login_required
+def api_hide_property():
+    """Soft-delete a property from the screener.
+
+    Any logged-in user can call this. Reason is required (min 3 chars).
+    Returns the new hidden_properties row id so the client can offer Undo."""
+    data = request.get_json(silent=True) or {}
+    state = (data.get('state') or '').strip().lower()
+    address = (data.get('address') or '').strip()
+    reason = (data.get('reason') or '').strip()
+    if state not in ('vic', 'nsw', 'qld'):
+        return jsonify({'error': 'Invalid state'}), 400
+    if not address:
+        return jsonify({'error': 'Missing address'}), 400
+    if len(reason) < 3:
+        return jsonify({'error': 'Reason is required (min 3 characters)'}), 400
+    addr_key = _address_key(address)
+    if not addr_key:
+        return jsonify({'error': 'Address could not be normalised'}), 400
+    u = request.current_user
+    db = get_db()
+    try:
+        cur = db.execute(
+            """INSERT INTO hidden_properties
+               (state, address, address_key, hidden_by_id, hidden_by_name, reason)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (state, address, addr_key, u['user_id'], u['full_name'], reason)
+        )
+        db.commit()
+        new_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        # Already hidden by someone else — that's fine, the property is gone
+        # either way. Return the existing row id so Undo still works for the
+        # admin (and the original hider) but not for this user.
+        existing = db.execute(
+            'SELECT id FROM hidden_properties WHERE state=? AND address_key=?',
+            (state, addr_key)
+        ).fetchone()
+        db.close()
+        return jsonify({
+            'ok': True,
+            'id': existing['id'] if existing else None,
+            'already_hidden': True,
+        })
+    db.close()
+    log_event('property_hidden', {'state': state, 'address': address, 'reason': reason})
+    return jsonify({'ok': True, 'id': new_id, 'already_hidden': False})
+
+
+@app.route('/api/unhide-property', methods=['POST'])
+@login_required
+def api_unhide_property():
+    """Restore a hidden property (delete the hidden_properties row).
+
+    Admins can unhide any row. Non-admins can unhide only their own hide
+    within HIDE_UNDO_SECONDS — this powers the 'Undo' toast immediately
+    after a mistaken click."""
+    data = request.get_json(silent=True) or {}
+    try:
+        hid = int(data.get('id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Missing or invalid id'}), 400
+    u = request.current_user
+    db = get_db()
+    row = db.execute(
+        'SELECT id, state, address, hidden_by_id, hidden_at FROM hidden_properties WHERE id=?',
+        (hid,)
+    ).fetchone()
+    if not row:
+        db.close()
+        return jsonify({'error': 'Hide record not found'}), 404
+    is_admin = u['role'] == 'admin'
+    is_owner = (row['hidden_by_id'] == u['user_id'])
+    within_window = False
+    if is_owner:
+        try:
+            # SQLite stores as 'YYYY-MM-DD HH:MM:SS' UTC
+            hidden_at = datetime.datetime.strptime(row['hidden_at'], '%Y-%m-%d %H:%M:%S')
+            age = (datetime.datetime.utcnow() - hidden_at).total_seconds()
+            within_window = age <= HIDE_UNDO_SECONDS
+        except (ValueError, TypeError):
+            within_window = False
+    if not (is_admin or (is_owner and within_window)):
+        db.close()
+        if is_owner:
+            return jsonify({'error': 'Undo window has expired. Ask an admin to restore.'}), 403
+        return jsonify({'error': 'Only an admin can restore this property'}), 403
+    db.execute('DELETE FROM hidden_properties WHERE id=?', (hid,))
+    db.commit()
+    db.close()
+    log_event('property_unhidden', {
+        'state': row['state'], 'address': row['address'],
+        'by_admin': is_admin and not is_owner,
+    })
+    return jsonify({'ok': True})
+
+
+@app.route('/api/hidden-properties')
+@admin_required
+def api_list_hidden():
+    """List all currently hidden properties. Admin only."""
+    db = get_db()
+    rows = db.execute(
+        """SELECT id, state, address, hidden_by_id, hidden_by_name,
+                  hidden_at, reason
+           FROM hidden_properties ORDER BY hidden_at DESC"""
+    ).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/api/hard-delete-property', methods=['POST'])
+@admin_required
+def api_hard_delete_property():
+    """Permanently remove a property from the CSV blob for its state.
+
+    Also removes any matching hidden_properties row so the address can later
+    be re-added (e.g. via manual entry in Stage C2) without conflict.
+    Admin only."""
+    data = request.get_json(silent=True) or {}
+    state = (data.get('state') or '').strip().lower()
+    address = (data.get('address') or '').strip()
+    if state not in ('vic', 'nsw', 'qld'):
+        return jsonify({'error': 'Invalid state'}), 400
+    if not address:
+        return jsonify({'error': 'Missing address'}), 400
+    addr_key = _address_key(address)
+    db = get_db()
+    row = db.execute(
+        'SELECT csv_data, row_count FROM property_data WHERE state=?', (state,)
+    ).fetchone()
+    if not row:
+        db.close()
+        return jsonify({'error': 'No property data for that state'}), 404
+    new_csv, removed = _strip_hidden_from_csv(row['csv_data'], {addr_key})
+    if removed == 0:
+        # The address wasn't in the CSV. Still purge any hidden_properties row
+        # for it (so the admin can clean up orphan hides).
+        db.execute(
+            'DELETE FROM hidden_properties WHERE state=? AND address_key=?',
+            (state, addr_key)
+        )
+        db.commit()
+        db.close()
+        return jsonify({
+            'ok': True,
+            'removed_from_csv': 0,
+            'note': 'Address was not present in the current CSV; any hide record cleared.',
+        })
+    new_row_count = max(0, (row['row_count'] or 0) - removed)
+    db.execute(
+        'UPDATE property_data SET csv_data=?, row_count=? WHERE state=?',
+        (new_csv, new_row_count, state)
+    )
+    db.execute(
+        'DELETE FROM hidden_properties WHERE state=? AND address_key=?',
+        (state, addr_key)
+    )
+    db.commit()
+    db.close()
+    log_event('property_hard_deleted', {'state': state, 'address': address, 'rows_removed': removed})
+    return jsonify({'ok': True, 'removed_from_csv': removed})
+
+
 
 @app.route('/admin/upload_dashboard', methods=['POST'])
 @admin_required
@@ -1061,6 +1427,16 @@ def admin(section='activity'):
             row['addr']=d.get('addr','n/a'); row['state']=d.get('state','').upper()
         except: row['addr']=row['state']='n/a'
         dl_list.append(row)
+    # Hidden properties — always fetch the count (for the tab badge), and the
+    # full list only if we're rendering that section.
+    hidden_count = db.execute('SELECT COUNT(*) FROM hidden_properties').fetchone()[0]
+    hidden = []
+    if section == 'hidden':
+        hidden = [dict(r) for r in db.execute(
+            """SELECT id, state, address, hidden_by_id, hidden_by_name,
+                      hidden_at, reason
+               FROM hidden_properties ORDER BY hidden_at DESC"""
+        ).fetchall()]
     db.close()
     msg = request.args.get('msg','')
     msg_type = request.args.get('msg_type','ok')
@@ -1071,6 +1447,7 @@ def admin(section='activity'):
         current_user=request.current_user, section=section,
         stats=stats, users=users, all_users=all_users,
         prop_views=prop_views, downloads=dl_list,
+        hidden=hidden, hidden_count=hidden_count,
         msg=msg, msg_type=msg_type, dash_loaded=dash_loaded
     ))
 

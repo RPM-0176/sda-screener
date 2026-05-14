@@ -4712,12 +4712,18 @@ function renderTable(tgt){
     var stB=pr.state?'<span class="badge '+(SC[pr.state]||'')+'">'+pr.state.toUpperCase()+'</span>':'';
     var mB=dispModel?'<span class="badge '+(MC[dispModel]||'')+'">'+MN[dispModel]+'</span>':'—';
     var medStr=pr.median>0?(pr.underMedian?'<span style="color:#0F6E56;font-weight:700">&#8595; under</span>':'<span style="color:#BA7517">&#8593; over</span>'):'—';
-    html+='<tr class="dr" onclick="toggleD('+pr.id+')">'
+    html+='<tr class="dr" id="prow-'+pr.id+'" onclick="toggleD('+pr.id+')">'
       +'<td>'
       +'<span id="star-'+pr.id+'" onclick="toggleShortlist('+pr.id+',event)" '
       +'style="cursor:pointer;font-size:16px;margin-right:6px;color:'+(isShortlisted(pr.id)?'#F59E0B':'#D1D5DB')+';user-select:none" '
       +'title="'+(isShortlisted(pr.id)?'Remove from shortlist':'Add to shortlist')+'">'
       +(isShortlisted(pr.id)?'\u2605':'\u2606')+'</span>'
+      +'<span class="hidebtn" onclick="openHideModal('+pr.id+',event)" '
+      +'data-state="'+pr.state+'" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" '
+      +'title="Hide this property from the screener" '
+      +'style="cursor:pointer;font-size:13px;margin-right:6px;color:#D1D5DB;user-select:none;font-weight:700" '
+      +'onmouseover="this.style.color=\'#A32D2D\'" onmouseout="this.style.color=\'#D1D5DB\'">'
+      +'\u2715</span>'
       +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a></td>'
       +'<td>'+fmtPrice(pr.price)+'</td>'
       +'<td>'+(pr.land>0?Math.round(pr.land)+'m\u00b2':'—')+'</td>'
@@ -8425,6 +8431,245 @@ document.addEventListener('keydown', function(e){
     if (document.getElementById('settings-modal').style.display === 'block') closeSettings();
     if (document.getElementById('lookup-modal').style.display === 'block') closeLookup();
     if (document.getElementById('shortlist-modal').style.display === 'block') closeShortlist();
+  }
+});
+</script>
+
+<!-- ============ HIDE PROPERTY MODAL + UNDO TOAST (Stage C1 soft-delete) ============ -->
+<style>
+#hide-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9100;display:none;align-items:center;justify-content:center;padding:20px}
+#hide-modal.show{display:flex}
+#hide-modal .card{background:#fff;border-radius:12px;width:100%;max-width:460px;box-shadow:0 8px 32px rgba(0,0,0,.25);overflow:hidden}
+#hide-modal .head{padding:14px 20px;background:#A32D2D;color:#fff;font-weight:700;font-size:14px}
+#hide-modal .body{padding:18px 20px}
+#hide-modal .body p{font-size:12px;color:#374151;margin-bottom:6px}
+#hide-modal .body .addr{font-size:12px;color:#185FA5;font-weight:700;margin-bottom:14px;word-break:break-word}
+#hide-modal label{display:block;font-size:11px;color:#6B7280;font-weight:600;margin-bottom:6px;text-transform:uppercase}
+#hide-modal textarea{width:100%;min-height:80px;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-family:Arial;font-size:13px;resize:vertical}
+#hide-modal textarea:focus{outline:none;border-color:#A32D2D}
+#hide-modal .err{font-size:11px;color:#A32D2D;margin-top:6px;min-height:14px}
+#hide-modal .foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;background:#f5f5f3;border-top:1px solid #e5e7eb}
+#hide-modal .foot button{padding:8px 16px;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+#hide-modal .cancel{background:#e5e7eb;color:#374151}
+#hide-modal .confirm{background:#A32D2D;color:#fff}
+#hide-modal .confirm:disabled{background:#d1d5db;cursor:not-allowed}
+#undo-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:12px 16px 12px 18px;border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:9200;display:none;align-items:center;gap:12px;font-size:13px;max-width:90vw}
+#undo-toast.show{display:flex}
+#undo-toast .msg{flex:1}
+#undo-toast button{background:transparent;border:1px solid #fff;color:#fff;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+#undo-toast button:hover{background:rgba(255,255,255,0.12)}
+</style>
+<div id="hide-modal" role="dialog" aria-modal="true">
+  <div class="card" onclick="event.stopPropagation()">
+    <div class="head">Hide this property</div>
+    <div class="body">
+      <p>This property will be hidden from the screener for everyone.</p>
+      <div class="addr" id="hide-modal-addr"></div>
+      <label for="hide-reason">Reason (required)</label>
+      <textarea id="hide-reason" placeholder="e.g. Already under contract, agent confirmed unavailable, wrong SA4..."></textarea>
+      <div class="err" id="hide-err"></div>
+    </div>
+    <div class="foot">
+      <button type="button" class="cancel" onclick="closeHideModal()">Cancel</button>
+      <button type="button" class="confirm" id="hide-confirm" onclick="submitHide()">Hide property</button>
+    </div>
+  </div>
+</div>
+<div id="undo-toast" role="status">
+  <span class="msg" id="undo-toast-msg">Property hidden.</span>
+  <button type="button" id="undo-toast-btn" onclick="undoLastHide()">Undo</button>
+</div>
+<script>
+// ---- Current user (populated by /api/me) ----
+window.CURRENT_USER = null;
+(function fetchMe(){
+  if (window.location.protocol === 'file:') return;
+  fetch('/api/me', {credentials:'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(me){ if (me) window.CURRENT_USER = me; })
+    .catch(function(){ /* offline or unauthed — leave null */ });
+})();
+
+// ---- Hide modal ----
+// State held while the modal is open.
+window._hidePending = null;  // {state, address, propId, rowEl}
+// State held briefly after a hide for the Undo toast.
+window._lastHide = null;     // {id, propId, state, address, rowEl, expiresAt, timerId}
+window._undoToastTimer = null;
+
+function openHideModal(propId, ev){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  // Find the property row and pull state + address from the hide-button data attrs.
+  var btn = (ev && ev.currentTarget) ? ev.currentTarget : document.querySelector('#prow-'+propId+' .hidebtn');
+  if (!btn) return;
+  var state = btn.getAttribute('data-state') || '';
+  var address = btn.getAttribute('data-addr') || '';
+  if (!state || !address) {
+    alert('Could not identify this property. Please refresh and try again.');
+    return;
+  }
+  var rowEl = document.getElementById('prow-'+propId);
+  window._hidePending = {state: state, address: address, propId: propId, rowEl: rowEl};
+  document.getElementById('hide-modal-addr').textContent = address;
+  var ta = document.getElementById('hide-reason');
+  ta.value = '';
+  document.getElementById('hide-err').textContent = '';
+  document.getElementById('hide-confirm').disabled = false;
+  document.getElementById('hide-modal').classList.add('show');
+  setTimeout(function(){ ta.focus(); }, 30);
+}
+
+function closeHideModal(){
+  document.getElementById('hide-modal').classList.remove('show');
+  window._hidePending = null;
+}
+
+function submitHide(){
+  if (!window._hidePending) return;
+  var reason = document.getElementById('hide-reason').value.trim();
+  var errEl = document.getElementById('hide-err');
+  if (reason.length < 3) {
+    errEl.textContent = 'Please give a brief reason (at least 3 characters).';
+    return;
+  }
+  var btn = document.getElementById('hide-confirm');
+  btn.disabled = true;
+  var p = window._hidePending;
+  fetch('/api/hide-property', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({state: p.state, address: p.address, reason: reason})
+  }).then(function(r){
+    return r.json().then(function(j){ return {ok: r.ok, status: r.status, j: j}; });
+  }).then(function(res){
+    if (!res.ok || !res.j.ok) {
+      errEl.textContent = (res.j && res.j.error) || ('Hide failed (HTTP '+res.status+')');
+      btn.disabled = false;
+      return;
+    }
+    // Success — vanish the row locally, queue the undo toast.
+    var hideRecordId = res.j.id;
+    var alreadyHidden = !!res.j.already_hidden;
+    closeHideModal();
+    applyLocalHide(p, hideRecordId, alreadyHidden, reason);
+  }).catch(function(e){
+    errEl.textContent = 'Network error: '+e;
+    btn.disabled = false;
+  });
+}
+
+function applyLocalHide(p, hideRecordId, alreadyHidden, reason){
+  // Fade out the row in the table, then remove it.
+  if (p.rowEl) {
+    p.rowEl.style.transition = 'opacity 0.25s';
+    p.rowEl.style.opacity = '0.3';
+    setTimeout(function(){
+      // Also remove the matching detail <tr id="dtr-N"> beneath it
+      var dtr = document.getElementById('dtr-'+p.propId);
+      if (dtr && dtr.parentNode) dtr.parentNode.removeChild(dtr);
+      if (p.rowEl && p.rowEl.parentNode) p.rowEl.parentNode.removeChild(p.rowEl);
+    }, 250);
+  }
+  // Also remove from in-memory props/filt so re-sorts don't bring it back.
+  if (typeof props !== 'undefined' && Array.isArray(props)) {
+    props = props.filter(function(x){ return x && x.id !== p.propId; });
+  }
+  if (typeof filt !== 'undefined' && Array.isArray(filt)) {
+    filt = filt.filter(function(x){ return x && x.id !== p.propId; });
+  }
+  // Also drop from stateProps so the property doesn't reappear via refilter/recalc paths.
+  if (typeof stateProps !== 'undefined' && stateProps[p.state] && Array.isArray(stateProps[p.state])) {
+    stateProps[p.state] = stateProps[p.state].filter(function(x){ return x && x.id !== p.propId; });
+  }
+  if (typeof rawProps !== 'undefined' && rawProps[p.state] && Array.isArray(rawProps[p.state])) {
+    rawProps[p.state] = rawProps[p.state].filter(function(x){ return x && x.id !== p.propId; });
+  }
+  // Show the undo toast (8 seconds).
+  showUndoToast(hideRecordId, p, alreadyHidden);
+}
+
+function showUndoToast(hideRecordId, p, alreadyHidden){
+  // Clear any prior pending toast — only the most recent hide is undoable here.
+  if (window._undoToastTimer) { clearTimeout(window._undoToastTimer); window._undoToastTimer = null; }
+  var toast = document.getElementById('undo-toast');
+  var msg = document.getElementById('undo-toast-msg');
+  var btn = document.getElementById('undo-toast-btn');
+  if (alreadyHidden && !hideRecordId) {
+    // Someone else had already hidden this. No undo possible from here.
+    msg.textContent = 'Already hidden by someone else.';
+    btn.style.display = 'none';
+  } else if (alreadyHidden) {
+    msg.textContent = 'Property hidden (was already in the hidden list).';
+    btn.style.display = 'inline-block';
+  } else {
+    msg.textContent = 'Property hidden.';
+    btn.style.display = 'inline-block';
+  }
+  window._lastHide = {
+    id: hideRecordId,
+    propId: p.propId,
+    state: p.state,
+    address: p.address
+  };
+  toast.classList.add('show');
+  window._undoToastTimer = setTimeout(function(){
+    toast.classList.remove('show');
+    window._lastHide = null;
+    window._undoToastTimer = null;
+  }, 8000);
+}
+
+function undoLastHide(){
+  if (!window._lastHide || !window._lastHide.id) return;
+  var rec = window._lastHide;
+  // Disable the button immediately so a double-click doesn't double-call.
+  var btn = document.getElementById('undo-toast-btn');
+  btn.disabled = true;
+  fetch('/api/unhide-property', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: rec.id})
+  }).then(function(r){
+    return r.json().then(function(j){ return {ok: r.ok, status: r.status, j: j}; });
+  }).then(function(res){
+    btn.disabled = false;
+    if (!res.ok || !res.j.ok) {
+      var em = (res.j && res.j.error) || ('Undo failed (HTTP '+res.status+')');
+      document.getElementById('undo-toast-msg').textContent = em;
+      return;
+    }
+    // Dismiss toast.
+    document.getElementById('undo-toast').classList.remove('show');
+    if (window._undoToastTimer) { clearTimeout(window._undoToastTimer); window._undoToastTimer = null; }
+    window._lastHide = null;
+    // The simplest correct way to restore the row visually is to refetch
+    // properties from the server. The user's filters and sort persist in
+    // state, so the redraw will land them back where they were.
+    if (typeof autoLoadFromServer === 'function') {
+      // Reset cached props so autoLoadFromServer actually re-runs.
+      props = []; filt = [];
+      stateProps = {vic:[],nsw:[],qld:[]};
+      rawProps = {vic:[],nsw:[],qld:[]};
+      autoLoadFromServer();
+    } else {
+      // Fallback: reload the page.
+      window.location.reload();
+    }
+  }).catch(function(e){
+    btn.disabled = false;
+    document.getElementById('undo-toast-msg').textContent = 'Undo error: '+e;
+  });
+}
+
+// Close hide modal on overlay click or Escape
+document.getElementById('hide-modal').addEventListener('click', function(e){
+  if (e.target === this) closeHideModal();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && document.getElementById('hide-modal').classList.contains('show')) {
+    closeHideModal();
   }
 });
 </script>

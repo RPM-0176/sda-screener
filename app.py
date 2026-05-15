@@ -529,6 +529,48 @@ def init_db():
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_hidden_properties_unique
             ON hidden_properties(state, address_key);
+        -- C2: manually-added properties (separate from CSV blobs in
+        -- property_data). The screener pipeline treats these as first-class
+        -- rows once they are merged client-side. Address is the matching
+        -- key shared with hidden_properties so C1 hide/restore endpoints
+        -- work on them with no extra plumbing.
+        CREATE TABLE IF NOT EXISTS manual_properties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,                 -- vic | nsw | qld
+            address TEXT NOT NULL,
+            address_key TEXT NOT NULL,           -- normalised for matching
+            suburb TEXT NOT NULL,
+            postcode TEXT,
+            price REAL NOT NULL,
+            land REAL NOT NULL,
+            design_type TEXT NOT NULL,           -- 2p | 3p | dp
+            sale_type TEXT NOT NULL,             -- Private Sale | Auction | Off-market | EOI
+            auction_date TEXT,                   -- only when sale_type=Auction
+            sa4 TEXT,
+            sa3 TEXT,
+            lat REAL,
+            lng REAL,
+            hosp1_name TEXT, hosp1_km REAL,
+            hosp2_name TEXT, hosp2_km REAL,
+            hosp3_name TEXT, hosp3_km REAL,
+            medical_name TEXT, medical_km REAL,
+            shop_name TEXT, shop_km REAL,
+            train_name TEXT, train_km REAL,
+            bus_km REAL,
+            tram_name TEXT, tram_km REAL,
+            created_by_id INTEGER NOT NULL,
+            created_by_name TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now')),
+            last_edited_by_id INTEGER,
+            last_edited_by_name TEXT,
+            last_edited_at TEXT,
+            FOREIGN KEY (created_by_id) REFERENCES users(id),
+            FOREIGN KEY (last_edited_by_id) REFERENCES users(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_properties_unique
+            ON manual_properties(state, address_key);
+        CREATE INDEX IF NOT EXISTS idx_manual_properties_state
+            ON manual_properties(state);
     """)
     db.commit()
     existing = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -758,34 +800,27 @@ def api_geocode():
     loc = data['results'][0]['geometry']['location']
     return jsonify({'lat': loc['lat'], 'lng': loc['lng']})
 
-@app.route('/api/places-nearby')
-@login_required
-def api_places_nearby():
-    """Find the nearest place of a given type. Args: lat, lng, type, radius (m).
-    Returns {name, km} of the closest match, or {error} / {name: null} if none found."""
-    if not GOOGLE_MAPS_API_KEY:
-        return jsonify({'error': 'GOOGLE_MAPS_API_KEY not configured on server'}), 500
-    try:
-        lat = float(request.args.get('lat', ''))
-        lng = float(request.args.get('lng', ''))
-    except ValueError:
-        return jsonify({'error': 'Invalid lat/lng'}), 400
-    place_type = (request.args.get('type') or '').strip()
-    if not place_type:
-        return jsonify({'error': 'Missing type'}), 400
-    try:
-        radius = int(request.args.get('radius', 5000))
-    except ValueError:
-        radius = 5000
-    radius = max(50, min(radius, 50000))
+def _places_search(lat, lng, place_type, radius=5000):
+    """Search Google Places near (lat, lng) for `place_type`.
+
+    Encapsulates the hospital text-search + name-filter logic, the
+    supermarket major-chain filter, and the shopping_mall name filter so the
+    same rules apply to both /api/places-nearby (client-driven) and manual
+    property creation (server-driven, in /api/manual-properties).
+
+    Returns a list of dicts [{'name': str, 'km': float}, ...] sorted by
+    distance ascending, or an empty list. Raises ValueError with a message
+    on upstream errors so callers can decide how to surface them.
+    """
+    radius = max(50, min(int(radius), 50000))
 
     # ----- HOSPITAL: use Text Search instead of Nearby Search -----
     # Google's Nearby Search tags too many things as primaryType=hospital
-    # (medical centres, kidney clinics, individual doctors). With distance ranking,
-    # those false positives get ranked above real hospitals further out.
-    # Text Search "hospital near {lat,lng}" understands the human meaning of
-    # 'hospital' and ranks real hospitals (Mercy, Northern, Royal Melbourne, etc.)
-    # at the top.
+    # (medical centres, kidney clinics, individual doctors). With distance
+    # ranking, those false positives get ranked above real hospitals further
+    # out. Text Search "hospital near {lat,lng}" understands the human
+    # meaning of 'hospital' and ranks real hospitals (Mercy, Northern,
+    # Royal Melbourne, etc.) at the top.
     if place_type == 'hospital':
         text_body = {
             'textQuery': 'hospital',
@@ -822,10 +857,10 @@ def api_places_nearby():
         data = _http_post_json('https://places.googleapis.com/v1/places:searchNearby',
                                body, headers=headers)
     if 'error' in data:
-        return jsonify({'error': data['error']}), 502
+        raise ValueError(data['error'])
     places = data.get('places') or []
     if not places:
-        return jsonify({'name': None, 'km': None})
+        return []
 
     # For 'hospital' searches via Text Search: Google's results are already
     # high-quality (real hospitals at the top). We still apply name-based
@@ -858,17 +893,6 @@ def api_places_nearby():
             n = (nm or '').lower()
             return any(kw in n for kw in NAME_EXCLUDE_KEYWORDS)
 
-        # Log what came back so we can debug bad results in production
-        try:
-            sample = [{'name': ((p.get('displayName') or {}).get('text')) or '',
-                       'primaryType': p.get('primaryType', ''),
-                       'types': p.get('types') or []}
-                      for p in places[:5]]
-            print('[/api/places-nearby hospital text-search] returned', len(places),
-                  'candidates near', lat, lng, '— first 5:', sample, flush=True)
-        except Exception:
-            pass
-
         filtered = []
         for p in places:
             types = set(p.get('types') or [])
@@ -877,20 +901,9 @@ def api_places_nearby():
                     and not name_excluded(nm)
                     and not (types & EXCLUDE_TYPES)):
                 filtered.append(p)
-
-        if not filtered:
-            return jsonify({'name': None, 'km': None})
-
-        # Re-sort by distance (Text Search returns by relevance, not distance)
-        def place_distance(p):
-            loc = p.get('location') or {}
-            if 'latitude' not in loc or 'longitude' not in loc:
-                return float('inf')
-            return _haversine_km(lat, lng, loc['latitude'], loc['longitude'])
-        filtered.sort(key=place_distance)
         places = filtered
 
-    # For 'supermarket' searches, prefer well-known major retailers by name.
+    # For 'supermarket': prefer well-known major retailers by name.
     if place_type == 'supermarket':
         SUPERMARKET_KEYWORDS = [
             'coles', 'woolworths', 'woolies', 'aldi', 'iga', 'foodworks',
@@ -899,17 +912,10 @@ def api_places_nearby():
         def is_known_chain(nm):
             n = (nm or '').lower()
             return any(kw in n for kw in SUPERMARKET_KEYWORDS)
-        major = [p for p in places
-                 if is_known_chain(((p.get('displayName') or {}).get('text')) or '')]
-        if major:
-            places = major
-        else:
-            # No major chain found — return null rather than a random store
-            return jsonify({'name': None, 'km': None})
+        places = [p for p in places
+                  if is_known_chain(((p.get('displayName') or {}).get('text')) or '')]
 
-    # For 'shopping_mall' searches, require the name to contain a shopping-centre keyword.
-    # This catches actual centres (Westfield, Northland, Chadstone, etc.) and rejects
-    # unrelated shops that Google sometimes returns with this type.
+    # For 'shopping_mall': require the name to contain a shopping-centre keyword.
     if place_type == 'shopping_mall':
         MALL_KEYWORDS = [
             'shopping centre', 'shopping center', 'shopping mall',
@@ -920,21 +926,122 @@ def api_places_nearby():
         def is_mall(nm):
             n = (nm or '').lower()
             return any(kw in n for kw in MALL_KEYWORDS)
-        malls = [p for p in places
-                 if is_mall(((p.get('displayName') or {}).get('text')) or '')]
-        if malls:
-            places = malls
-        else:
-            # Nothing actually a mall — return null rather than a random shop
-            return jsonify({'name': None, 'km': None})
+        places = [p for p in places
+                  if is_mall(((p.get('displayName') or {}).get('text')) or '')]
 
-    best = places[0]
-    loc = best.get('location') or {}
-    if 'latitude' not in loc or 'longitude' not in loc:
+    out = []
+    for p in places:
+        loc = p.get('location') or {}
+        if 'latitude' not in loc or 'longitude' not in loc:
+            continue
+        nm = ((p.get('displayName') or {}).get('text')) or '—'
+        km = _haversine_km(lat, lng, loc['latitude'], loc['longitude'])
+        out.append({'name': nm, 'km': round(km, 2)})
+    out.sort(key=lambda x: x['km'])
+    return out
+
+
+def _compute_amenities(lat, lng):
+    """Run the six Google Places lookups used for a manual property and
+    return a flat dict matching the column names the dashboard expects:
+    hosp1_name/km, hosp2_name/km, hosp3_name/km, medical_name/km,
+    shop_name/km, train_name/km, bus_km, tram_name/km. Any field that
+    can't be filled comes back as ''. Errors from the upstream API are
+    logged but never raise — a property still saves even if a lookup
+    fails."""
+    out = {
+        'hosp1_name': '', 'hosp1_km': '',
+        'hosp2_name': '', 'hosp2_km': '',
+        'hosp3_name': '', 'hosp3_km': '',
+        'medical_name': '', 'medical_km': '',
+        'shop_name': '', 'shop_km': '',
+        'train_name': '', 'train_km': '',
+        'bus_km': '',
+        'tram_name': '', 'tram_km': '',
+    }
+    if not GOOGLE_MAPS_API_KEY:
+        return out
+
+    def safe(place_type, radius=5000):
+        try:
+            return _places_search(lat, lng, place_type, radius)
+        except ValueError as e:
+            print('[_compute_amenities]', place_type, 'failed:', e, flush=True)
+            return []
+
+    # Hospitals: top 3
+    hosps = safe('hospital', radius=15000)  # wider radius — hospitals are rarer
+    for i, h in enumerate(hosps[:3], start=1):
+        out['hosp' + str(i) + '_name'] = h['name']
+        out['hosp' + str(i) + '_km'] = h['km']
+
+    # Doctor (any GP / medical centre)
+    docs = safe('doctor')
+    if docs:
+        out['medical_name'] = docs[0]['name']
+        out['medical_km'] = docs[0]['km']
+
+    # Supermarket — fall back to shopping_mall when no major chain nearby
+    sups = safe('supermarket')
+    if sups:
+        out['shop_name'] = sups[0]['name']
+        out['shop_km'] = sups[0]['km']
+    else:
+        malls = safe('shopping_mall')
+        if malls:
+            out['shop_name'] = malls[0]['name']
+            out['shop_km'] = malls[0]['km']
+
+    # Train
+    trains = safe('train_station')
+    if trains:
+        out['train_name'] = trains[0]['name']
+        out['train_km'] = trains[0]['km']
+
+    # Bus — store distance only (matches CSV schema, which has bus_km but no bus_name)
+    buses = safe('bus_station', radius=2000)
+    if buses:
+        out['bus_km'] = buses[0]['km']
+
+    # Tram
+    trams = safe('light_rail_station', radius=3000)
+    if trams:
+        out['tram_name'] = trams[0]['name']
+        out['tram_km'] = trams[0]['km']
+
+    return out
+
+
+@app.route('/api/places-nearby')
+@login_required
+def api_places_nearby():
+    """Find the nearest place of a given type. Args: lat, lng, type, radius (m).
+    Returns {name, km} of the closest match, or {error} / {name: null} if none found."""
+    if not GOOGLE_MAPS_API_KEY:
+        return jsonify({'error': 'GOOGLE_MAPS_API_KEY not configured on server'}), 500
+    try:
+        lat = float(request.args.get('lat', ''))
+        lng = float(request.args.get('lng', ''))
+    except ValueError:
+        return jsonify({'error': 'Invalid lat/lng'}), 400
+    place_type = (request.args.get('type') or '').strip()
+    if not place_type:
+        return jsonify({'error': 'Missing type'}), 400
+    try:
+        radius = int(request.args.get('radius', 5000))
+    except ValueError:
+        radius = 5000
+
+    try:
+        results = _places_search(lat, lng, place_type, radius=radius)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 502
+
+    if not results:
         return jsonify({'name': None, 'km': None})
-    name = ((best.get('displayName') or {}).get('text')) or '—'
-    km = _haversine_km(lat, lng, loc['latitude'], loc['longitude'])
-    return jsonify({'name': name, 'km': round(km, 2)})
+    return jsonify({'name': results[0]['name'], 'km': results[0]['km']})
+
+
 
 @app.route('/api/static-map')
 @login_required
@@ -1376,6 +1483,377 @@ def api_hard_delete_property():
     log_event('property_hard_deleted', {'state': state, 'address': address, 'rows_removed': removed})
     return jsonify({'ok': True, 'removed_from_csv': removed})
 
+
+# ===========================================================================
+# C2: Manual property addition
+# ---------------------------------------------------------------------------
+# Anyone signed-in can add a property; the row is geocoded server-side and
+# the same Google Places amenity lookups run that the CSV pipeline does, so
+# manual entries are indistinguishable from CSV ones in the screener.
+# The hide/restore endpoints from C1 already key on (state, address_key)
+# and therefore work on manual properties with no further code. Hard delete
+# of a manual property (admin only) ALSO purges any matching hidden_properties
+# row so the address can be re-added cleanly later.
+# ===========================================================================
+
+VALID_DESIGN_TYPES = {'2p', '3p', 'dp'}
+VALID_SALE_TYPES = {'Private Sale', 'Auction', 'Off-market', 'Expression of Interest'}
+
+
+def _manual_row_to_dict(r):
+    """Serialise a manual_properties SQLite row for the JSON API."""
+    return {
+        'id': r['id'],
+        'state': r['state'],
+        'address': r['address'],
+        'suburb': r['suburb'],
+        'postcode': r['postcode'] or '',
+        'price': r['price'],
+        'land': r['land'],
+        'design_type': r['design_type'],
+        'sale_type': r['sale_type'],
+        'auction_date': r['auction_date'] or '',
+        'sa4': r['sa4'] or '',
+        'sa3': r['sa3'] or '',
+        'lat': r['lat'],
+        'lng': r['lng'],
+        'hosp1_name': r['hosp1_name'] or '', 'hosp1_km': r['hosp1_km'] if r['hosp1_km'] is not None else '',
+        'hosp2_name': r['hosp2_name'] or '', 'hosp2_km': r['hosp2_km'] if r['hosp2_km'] is not None else '',
+        'hosp3_name': r['hosp3_name'] or '', 'hosp3_km': r['hosp3_km'] if r['hosp3_km'] is not None else '',
+        'medical_name': r['medical_name'] or '', 'medical_km': r['medical_km'] if r['medical_km'] is not None else '',
+        'shop_name': r['shop_name'] or '', 'shop_km': r['shop_km'] if r['shop_km'] is not None else '',
+        'train_name': r['train_name'] or '', 'train_km': r['train_km'] if r['train_km'] is not None else '',
+        'bus_km': r['bus_km'] if r['bus_km'] is not None else '',
+        'tram_name': r['tram_name'] or '', 'tram_km': r['tram_km'] if r['tram_km'] is not None else '',
+        'created_by_id': r['created_by_id'],
+        'created_by_name': r['created_by_name'],
+        'created_at': r['created_at'],
+        'last_edited_by_id': r['last_edited_by_id'],
+        'last_edited_by_name': r['last_edited_by_name'] or '',
+        'last_edited_at': r['last_edited_at'] or '',
+    }
+
+
+def _validate_manual_payload(data, partial=False):
+    """Validate the JSON payload for create / update.
+
+    Returns (cleaned_dict, error_or_none). `partial=True` skips required-field
+    checks (used on PUT where the address is fixed and only changed fields
+    matter; required fields still get range-checked if present)."""
+    out = {}
+
+    state = (data.get('state') or '').strip().lower()
+    if state or not partial:
+        if state not in ('vic', 'nsw', 'qld'):
+            return None, 'state must be vic, nsw or qld'
+        out['state'] = state
+
+    address = (data.get('address') or '').strip()
+    if address or not partial:
+        if len(address) < 5:
+            return None, 'address is required (min 5 characters)'
+        out['address'] = address
+
+    suburb = (data.get('suburb') or '').strip()
+    if suburb or not partial:
+        if not suburb:
+            return None, 'suburb is required'
+        out['suburb'] = suburb
+
+    # Postcode is optional; if given, must be 4 digits
+    if 'postcode' in data:
+        pc = (data.get('postcode') or '').strip()
+        if pc and not (pc.isdigit() and len(pc) == 4):
+            return None, 'postcode must be 4 digits'
+        out['postcode'] = pc
+
+    if 'price' in data or not partial:
+        try:
+            price = float(data.get('price'))
+        except (TypeError, ValueError):
+            return None, 'price must be a number'
+        if price < 100000:
+            return None, 'price must be at least $100,000'
+        out['price'] = price
+
+    if 'land' in data or not partial:
+        try:
+            land = float(data.get('land'))
+        except (TypeError, ValueError):
+            return None, 'land size must be a number'
+        # Match the screener's existing applyF filter (>1000m² is excluded)
+        if land <= 0 or land > 1000:
+            return None, 'land size must be between 1 and 1000 m²'
+        out['land'] = land
+
+    if 'design_type' in data or not partial:
+        dt = (data.get('design_type') or '').strip().lower()
+        if dt not in VALID_DESIGN_TYPES:
+            return None, 'design_type must be one of: 2p, 3p, dp'
+        out['design_type'] = dt
+
+    if 'sale_type' in data or not partial:
+        st = (data.get('sale_type') or '').strip()
+        if st not in VALID_SALE_TYPES:
+            return None, 'sale_type must be one of: ' + ', '.join(sorted(VALID_SALE_TYPES))
+        out['sale_type'] = st
+
+    # auction_date — required iff effective sale_type is Auction.
+    # We only run this check when the request actually touches sale_type or
+    # auction_date. A partial PUT that just changes (say) price must not
+    # demand the user re-supply auction_date on every edit.
+    touches_auction = ('sale_type' in out) or ('auction_date' in data)
+    if touches_auction:
+        effective_sale = out.get('sale_type') or data.get('_existing_sale_type')
+        if effective_sale == 'Auction':
+            ad = (data.get('auction_date') or '').strip()
+            if not ad:
+                # If we're not changing sale_type (i.e. it's already Auction
+                # in the DB) and the client sent an empty auction_date,
+                # treat that as 'keep existing' rather than 'clear it'.
+                if 'sale_type' not in out and 'auction_date' not in data:
+                    pass
+                else:
+                    return None, 'auction_date is required when sale_type=Auction'
+            else:
+                try:
+                    datetime.datetime.strptime(ad, '%Y-%m-%d')
+                except ValueError:
+                    return None, 'auction_date must be in YYYY-MM-DD format'
+                out['auction_date'] = ad
+        else:
+            # Switching away from Auction (or non-Auction create): clear the date.
+            out['auction_date'] = None
+
+    # SA4/SA3 — accept whatever the client looked up (or the user override)
+    if 'sa4' in data:
+        out['sa4'] = (data.get('sa4') or '').strip()
+    if 'sa3' in data:
+        out['sa3'] = (data.get('sa3') or '').strip()
+
+    return out, None
+
+
+@app.route('/api/manual-properties', methods=['GET'])
+@login_required
+def api_list_manual_properties():
+    """List manual properties. Hidden ones (per C1 hidden_properties)
+    are stripped before returning, so the dashboard sees the same view it
+    does for CSV rows — without that, hiding a manual property via the
+    existing ✕ button would not actually remove it from the screener."""
+    db = get_db()
+    rows = db.execute(
+        'SELECT * FROM manual_properties ORDER BY created_at DESC'
+    ).fetchall()
+    # Build the set of (state, address_key) pairs that are hidden so we
+    # can drop them in a single pass.
+    hidden = db.execute(
+        'SELECT state, address_key FROM hidden_properties'
+    ).fetchall()
+    db.close()
+    hidden_set = {(h['state'], h['address_key']) for h in hidden}
+    out = []
+    for r in rows:
+        if (r['state'], r['address_key']) in hidden_set:
+            continue
+        out.append(_manual_row_to_dict(r))
+    return jsonify(out)
+
+
+@app.route('/api/manual-properties', methods=['POST'])
+@login_required
+def api_create_manual_property():
+    """Create a new manual property. Geocodes the address and runs the
+    Google Places amenity lookups server-side."""
+    data = request.get_json(silent=True) or {}
+    cleaned, err = _validate_manual_payload(data, partial=False)
+    if err:
+        return jsonify({'error': err}), 400
+
+    state = cleaned['state']
+    address = cleaned['address']
+    addr_key = _address_key(address)
+
+    # Reject if this address already exists as a manual property in the
+    # same state (the unique index would catch it but we'd rather a clean
+    # 409 than an IntegrityError).
+    db = get_db()
+    existing = db.execute(
+        'SELECT id FROM manual_properties WHERE state=? AND address_key=?',
+        (state, addr_key)
+    ).fetchone()
+    if existing:
+        db.close()
+        return jsonify({'error': 'A manual property with that address already exists in ' + state.upper(),
+                        'existing_id': existing['id']}), 409
+
+    # Geocode. We don't hard-fail on geocode failure — the amenity lookups
+    # will silently come back empty and the user can edit + recompute later.
+    lat, lng = None, None
+    if GOOGLE_MAPS_API_KEY:
+        url = ('https://maps.googleapis.com/maps/api/geocode/json'
+               '?address=' + quote_plus(address + ', Australia') +
+               '&key=' + GOOGLE_MAPS_API_KEY)
+        geo = _http_get_json(url)
+        if geo.get('status') == 'OK' and geo.get('results'):
+            loc = geo['results'][0]['geometry']['location']
+            lat, lng = loc['lat'], loc['lng']
+
+    amenities = _compute_amenities(lat, lng) if (lat is not None and lng is not None) else {
+        'hosp1_name': '', 'hosp1_km': '',
+        'hosp2_name': '', 'hosp2_km': '',
+        'hosp3_name': '', 'hosp3_km': '',
+        'medical_name': '', 'medical_km': '',
+        'shop_name': '', 'shop_km': '',
+        'train_name': '', 'train_km': '',
+        'bus_km': '',
+        'tram_name': '', 'tram_km': '',
+    }
+
+    u = request.current_user
+    try:
+        cur = db.execute("""INSERT INTO manual_properties
+            (state, address, address_key, suburb, postcode, price, land,
+             design_type, sale_type, auction_date, sa4, sa3, lat, lng,
+             hosp1_name, hosp1_km, hosp2_name, hosp2_km, hosp3_name, hosp3_km,
+             medical_name, medical_km, shop_name, shop_km, train_name, train_km,
+             bus_km, tram_name, tram_km, created_by_id, created_by_name)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (state, address, addr_key, cleaned['suburb'], cleaned.get('postcode') or None,
+             cleaned['price'], cleaned['land'], cleaned['design_type'],
+             cleaned['sale_type'], cleaned.get('auction_date'),
+             cleaned.get('sa4') or None, cleaned.get('sa3') or None,
+             lat, lng,
+             amenities['hosp1_name'] or None, amenities['hosp1_km'] or None,
+             amenities['hosp2_name'] or None, amenities['hosp2_km'] or None,
+             amenities['hosp3_name'] or None, amenities['hosp3_km'] or None,
+             amenities['medical_name'] or None, amenities['medical_km'] or None,
+             amenities['shop_name'] or None, amenities['shop_km'] or None,
+             amenities['train_name'] or None, amenities['train_km'] or None,
+             amenities['bus_km'] or None,
+             amenities['tram_name'] or None, amenities['tram_km'] or None,
+             u['user_id'], u['full_name']))
+        db.commit()
+        new_id = cur.lastrowid
+    except sqlite3.IntegrityError as e:
+        db.close()
+        return jsonify({'error': 'Database constraint violation: ' + str(e)}), 400
+
+    row = db.execute('SELECT * FROM manual_properties WHERE id=?', (new_id,)).fetchone()
+    db.close()
+    log_event('manual_property_created', {'id': new_id, 'state': state, 'address': address})
+    return jsonify({'ok': True, 'property': _manual_row_to_dict(row)})
+
+
+@app.route('/api/manual-properties/<int:mid>', methods=['PUT'])
+@login_required
+def api_update_manual_property(mid):
+    """Update a manual property. Only the creator and admins can edit.
+    Address cannot be changed (it's the matching key for hides). Supports
+    optional ?recompute_amenities=true to redo the Google Places lookups."""
+    u = request.current_user
+    db = get_db()
+    row = db.execute('SELECT * FROM manual_properties WHERE id=?', (mid,)).fetchone()
+    if not row:
+        db.close()
+        return jsonify({'error': 'Manual property not found'}), 404
+
+    is_admin = u['role'] == 'admin'
+    is_owner = (row['created_by_id'] == u['user_id'])
+    if not (is_admin or is_owner):
+        db.close()
+        return jsonify({'error': 'Only the creator or an admin can edit this property'}), 403
+
+    data = request.get_json(silent=True) or {}
+    # Hand the validator the existing sale_type so auction_date validation
+    # works even when the client only sends auction_date.
+    data.setdefault('_existing_sale_type', row['sale_type'])
+    cleaned, err = _validate_manual_payload(data, partial=True)
+    if err:
+        db.close()
+        return jsonify({'error': err}), 400
+
+    # Address is immutable — silently drop it if the client sent one.
+    cleaned.pop('address', None)
+    # State change is allowed (sometimes a row gets entered under the wrong
+    # state); recompute address_key isn't needed because address didn't change.
+
+    if not cleaned and 'recompute_amenities' not in request.args:
+        db.close()
+        return jsonify({'error': 'No editable fields supplied'}), 400
+
+    # Build dynamic UPDATE
+    set_clauses, values = [], []
+    for k, v in cleaned.items():
+        set_clauses.append(k + '=?')
+        values.append(v)
+
+    # Optional amenity recompute
+    if request.args.get('recompute_amenities', '').lower() == 'true':
+        lat = row['lat']
+        lng = row['lng']
+        # If lat/lng missing, try to geocode now using the (immutable) address
+        if (lat is None or lng is None) and GOOGLE_MAPS_API_KEY:
+            url = ('https://maps.googleapis.com/maps/api/geocode/json'
+                   '?address=' + quote_plus(row['address'] + ', Australia') +
+                   '&key=' + GOOGLE_MAPS_API_KEY)
+            geo = _http_get_json(url)
+            if geo.get('status') == 'OK' and geo.get('results'):
+                loc = geo['results'][0]['geometry']['location']
+                lat, lng = loc['lat'], loc['lng']
+                set_clauses += ['lat=?', 'lng=?']
+                values += [lat, lng]
+        if lat is not None and lng is not None:
+            am = _compute_amenities(lat, lng)
+            for col in ('hosp1_name','hosp1_km','hosp2_name','hosp2_km',
+                        'hosp3_name','hosp3_km','medical_name','medical_km',
+                        'shop_name','shop_km','train_name','train_km',
+                        'bus_km','tram_name','tram_km'):
+                set_clauses.append(col + '=?')
+                values.append(am[col] if am[col] != '' else None)
+
+    # Always stamp last_edited_*
+    set_clauses += ['last_edited_by_id=?', 'last_edited_by_name=?', 'last_edited_at=?']
+    values += [u['user_id'], u['full_name'], datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')]
+
+    values.append(mid)
+    db.execute('UPDATE manual_properties SET ' + ', '.join(set_clauses) + ' WHERE id=?', values)
+    db.commit()
+
+    updated = db.execute('SELECT * FROM manual_properties WHERE id=?', (mid,)).fetchone()
+    db.close()
+    log_event('manual_property_edited', {'id': mid, 'fields': list(cleaned.keys()),
+                                          'recomputed': request.args.get('recompute_amenities','').lower()=='true'})
+    return jsonify({'ok': True, 'property': _manual_row_to_dict(updated)})
+
+
+@app.route('/api/manual-properties/<int:mid>', methods=['DELETE'])
+@admin_required
+def api_delete_manual_property(mid):
+    """Permanently delete a manual property. Admin only.
+    Also purges any matching hidden_properties row so the same address can
+    be re-added later without a stale C1 hide blocking it."""
+    db = get_db()
+    row = db.execute(
+        'SELECT id, state, address, address_key FROM manual_properties WHERE id=?', (mid,)
+    ).fetchone()
+    if not row:
+        db.close()
+        return jsonify({'error': 'Manual property not found'}), 404
+    state = row['state']
+    addr_key = row['address_key']
+    db.execute('DELETE FROM manual_properties WHERE id=?', (mid,))
+    purged = db.execute(
+        'DELETE FROM hidden_properties WHERE state=? AND address_key=?',
+        (state, addr_key)
+    ).rowcount
+    db.commit()
+    db.close()
+    log_event('manual_property_deleted', {
+        'id': mid, 'state': state, 'address': row['address'],
+        'hide_rows_purged': purged,
+    })
+    return jsonify({'ok': True, 'hide_rows_purged': purged})
 
 
 @app.route('/admin/upload_dashboard', methods=['POST'])

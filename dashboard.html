@@ -103,6 +103,7 @@ tr.dr:hover td{background:#fafaf9}
       <a href="/logout" class="clrbtn2" style="color:#A32D2D;border-color:#A32D2D;text-decoration:none;display:none" id="logout-btn">Sign out</a>
       
       <button class="clrbtn2" onclick="openLookup()" style="color:#185FA5;border-color:#185FA5;font-weight:700">&#128269; Suburb lookup</button>
+      <button class="clrbtn2" onclick="openAddManualModal()" style="color:#0F6E56;border-color:#0F6E56;font-weight:700">&#43; Add property</button>
       <button class="clrbtn2" id="shortlist-btn" onclick="openShortlist()" style="color:#F59E0B;border-color:#F59E0B;font-weight:700;opacity:0.55">&#9733; Compare shortlist (0)</button>
   </div>
 </div>
@@ -4712,6 +4713,26 @@ function renderTable(tgt){
     var stB=pr.state?'<span class="badge '+(SC[pr.state]||'')+'">'+pr.state.toUpperCase()+'</span>':'';
     var mB=dispModel?'<span class="badge '+(MC[dispModel]||'')+'">'+MN[dispModel]+'</span>':'—';
     var medStr=pr.median>0?(pr.underMedian?'<span style="color:#0F6E56;font-weight:700">&#8595; under</span>':'<span style="color:#BA7517">&#8593; over</span>'):'—';
+    // C2: manual properties get a cog (info on who added/edited) and,
+    // for the creator or admins, a pencil to edit. Built up as a fragment
+    // so the existing hidebtn/star markup stays untouched.
+    var manualMarks = '';
+    if (pr.is_manual) {
+      var tip = 'Added by '+(pr.created_by_name||'?')+' on '+((pr.created_at||'').substring(0,10)||'?');
+      if (pr.last_edited_by_name) {
+        tip += '  ·  last edited by '+pr.last_edited_by_name+' on '+((pr.last_edited_at||'').substring(0,10));
+      }
+      manualMarks += '<span class="manualcog" title="'+tip.replace(/"/g,'&quot;')+'" '
+        + 'style="cursor:help;font-size:12px;margin-right:6px;color:#0F6E56;user-select:none">\u2699</span>';
+      var u = window.CURRENT_USER;
+      var canEdit = u && (u.is_admin || u.full_name === pr.created_by_name);
+      if (canEdit) {
+        manualMarks += '<span class="editpen" onclick="openEditManualModal('+(pr.manual_id||0)+',event)" '
+          + 'title="Edit this property" '
+          + 'style="cursor:pointer;font-size:12px;margin-right:6px;color:#185FA5;user-select:none" '
+          + 'onmouseover="this.style.color=\'#0C447C\'" onmouseout="this.style.color=\'#185FA5\'">\u270e</span>';
+      }
+    }
     html+='<tr class="dr" id="prow-'+pr.id+'" onclick="toggleD('+pr.id+')">'
       +'<td>'
       +'<span id="star-'+pr.id+'" onclick="toggleShortlist('+pr.id+',event)" '
@@ -4724,6 +4745,7 @@ function renderTable(tgt){
       +'style="cursor:pointer;font-size:13px;margin-right:6px;color:#D1D5DB;user-select:none;font-weight:700" '
       +'onmouseover="this.style.color=\'#A32D2D\'" onmouseout="this.style.color=\'#D1D5DB\'">'
       +'\u2715</span>'
+      +manualMarks
       +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a></td>'
       +'<td>'+fmtPrice(pr.price)+'</td>'
       +'<td>'+(pr.land>0?Math.round(pr.land)+'m\u00b2':'—')+'</td>'
@@ -8169,8 +8191,13 @@ function autoLoadFromServer(){
         }
         loaded++;
         if(loaded === 3){
+          // All CSVs ingested — now layer in manual properties on top.
+          loadManualProperties();
         }
-      }).catch(function(){ loaded++; });
+      }).catch(function(){
+        loaded++;
+        if(loaded === 3) loadManualProperties();
+      });
   });
 }
 
@@ -8190,6 +8217,557 @@ function autoLoadFromServer(){
     window.addEventListener('load',showBtns);
   }
 })();
+
+// =====================================================================
+// C2: manual property addition
+// ---------------------------------------------------------------------
+// Manual rows are loaded from /api/manual-properties after the three
+// CSVs and converted to the same shape calcProp() expects. They flow
+// through rebuildProps -> applyF -> renderTable like CSV rows. The only
+// distinguishing fields are is_manual=true plus the creator/editor
+// metadata, which renderTable uses to surface the cog and pencil.
+// IDs are 900000 + manual_id so they can't collide with CSV ids
+// (CSV uses 0 / 100000 / 200000 state offsets).
+// =====================================================================
+
+window.manualPropsRaw = [];   // cached server response so edit/delete can refresh locally
+window._manualEditing = null; // {id, ...} while the edit modal is open
+
+function manualRowToScreener(r){
+  // Translate the server's manual_properties JSON into the row shape
+  // loadRows() / calcProp() expect. Numeric amenity fields come back as
+  // numbers or '' — keep them as strings (with km appended downstream),
+  // mirroring how the CSV pipeline stores them.
+  function s(v){ return v===null||v===undefined ? '' : String(v); }
+  return {
+    id: 900000 + r.id,
+    manual_id: r.id,
+    is_manual: true,
+    addr: r.address,
+    price: r.price,
+    land: r.land,
+    state: r.state,
+    sa4: r.sa4 || '',
+    sa3: r.sa3 || '',
+    suburb: r.suburb || '',
+    postcode: r.postcode || '',
+    design_type: r.design_type || '',
+    sale_type: r.sale_type || '',
+    auction_date: r.auction_date || '',
+    hosp1_name: s(r.hosp1_name), hosp1_km: s(r.hosp1_km),
+    hosp2_name: s(r.hosp2_name), hosp2_km: s(r.hosp2_km),
+    hosp3_name: s(r.hosp3_name), hosp3_km: s(r.hosp3_km),
+    medical_name: s(r.medical_name), medical_km: s(r.medical_km),
+    shop_name: s(r.shop_name), shop_km: s(r.shop_km),
+    train_name: s(r.train_name), train_km: s(r.train_km),
+    bus_km: s(r.bus_km),
+    tram_name: s(r.tram_name), tram_km: s(r.tram_km),
+    created_by_id: r.created_by_id,
+    created_by_name: r.created_by_name,
+    created_at: r.created_at,
+    last_edited_by_id: r.last_edited_by_id,
+    last_edited_by_name: r.last_edited_by_name,
+    last_edited_at: r.last_edited_at
+  };
+}
+
+function loadManualProperties(){
+  if (window.location.protocol === 'file:') return;
+  return fetch('/api/manual-properties', {credentials:'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(list){
+      window.manualPropsRaw = list || [];
+      mergeManualIntoState();
+    }).catch(function(){ /* offline or unauthed */ });
+}
+
+function mergeManualIntoState(){
+  // Remove any previously-merged manual rows from stateProps/rawProps and
+  // re-add the current set from manualPropsRaw. Called on initial load and
+  // again after every add/edit/delete so the local view is consistent
+  // without a full page reload.
+  ['vic','nsw','qld'].forEach(function(st){
+    if (rawProps[st]) rawProps[st] = rawProps[st].filter(function(p){ return !p.is_manual; });
+    if (stateProps[st]) stateProps[st] = stateProps[st].filter(function(p){ return !p.is_manual; });
+  });
+  if (!window.manualPropsRaw || !window.manualPropsRaw.length) {
+    rebuildProps();
+    return;
+  }
+  window.manualPropsRaw.forEach(function(r){
+    var st = (r.state||'').toLowerCase();
+    if (!rawProps[st]) return;
+    var row = manualRowToScreener(r);
+    rawProps[st].push(row);
+    // calcProp returns Object.assign({},prop,{...computed}) — keeps is_manual etc.
+    var calc = calcProp(row);
+    stateProps[st].push(calc);
+    // Refresh the state badge to reflect the new count (CSV count + manual)
+    var b = document.getElementById(st+'-badge');
+    if (b && stateProps[st].length > 0) {
+      var count = stateProps[st].length;
+      var colors={vic:'#0F6E56',nsw:'#185FA5',qld:'#BA7517'};
+      var bgs={vic:'#e8f5ee',nsw:'#e8f0fb',qld:'#fdf0d8'};
+      b.textContent = count.toLocaleString()+' properties';
+      b.style.color = colors[st]; b.style.background = bgs[st];
+      b.className = 'zone-badge';
+    }
+  });
+  rebuildProps();
+}
+
+// ---- Client-side suburb -> [SA4, SA3] lookup using SUBURB_SA4 ----
+// Mirrors the direction-prefix tolerance already used at the existing
+// resolveSA3Name path (e.g. "Albury - East" / "East Albury" both resolve).
+function manualSuburbLookup(state, suburb){
+  if (!state || !suburb) return null;
+  var tab = SUBURB_SA4[state];
+  if (!tab) return null;
+  var key = suburb.trim().toUpperCase();
+  if (tab[key]) return tab[key];
+  // Tolerate compass-direction prefix/suffix like "EAST ALBURY" -> "ALBURY"
+  var dirs = {NORTH:1,SOUTH:1,EAST:1,WEST:1};
+  var words = key.split(/\s+/);
+  if (words.length >= 2){
+    if (dirs[words[0]] && tab[words.slice(1).join(' ')]) return tab[words.slice(1).join(' ')];
+    if (dirs[words[words.length-1]] && tab[words.slice(0,-1).join(' ')]) return tab[words.slice(0,-1).join(' ')];
+  }
+  return null;
+}
+
+// ---- Add-property modal ----
+function openAddManualModal(){
+  document.getElementById('add-manual-modal').classList.add('show');
+  // Reset form
+  ['m-addr','m-suburb','m-postcode','m-price','m-land','m-auction-date',
+   'm-sa4','m-sa3'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('m-state').value = 'vic';
+  document.getElementById('m-design').value = '2p';
+  document.getElementById('m-sale').value = 'Private Sale';
+  document.getElementById('m-auction-row').style.display = 'none';
+  document.getElementById('m-sa4').readOnly = true;
+  document.getElementById('m-sa3').readOnly = true;
+  document.getElementById('m-sa-edit').textContent = 'Edit if wrong';
+  document.getElementById('m-err').textContent = '';
+  document.getElementById('m-confirm').disabled = false;
+  document.getElementById('m-confirm').textContent = 'Add property';
+  setTimeout(function(){ var a=document.getElementById('m-addr'); if(a) a.focus(); }, 30);
+}
+function closeAddManualModal(){
+  document.getElementById('add-manual-modal').classList.remove('show');
+}
+
+function onManualSuburbOrStateChange(){
+  var st = document.getElementById('m-state').value;
+  var sub = document.getElementById('m-suburb').value;
+  var lookup = manualSuburbLookup(st, sub);
+  var sa4El = document.getElementById('m-sa4');
+  var sa3El = document.getElementById('m-sa3');
+  if (lookup) {
+    if (sa4El.readOnly) sa4El.value = lookup[0] || '';
+    if (sa3El.readOnly) sa3El.value = lookup[1] || '';
+    document.getElementById('m-sa-status').textContent = '\u2713 auto-detected';
+    document.getElementById('m-sa-status').style.color = '#0F6E56';
+  } else {
+    if (sa4El.readOnly) sa4El.value = '';
+    if (sa3El.readOnly) sa3El.value = '';
+    document.getElementById('m-sa-status').textContent = sub ? 'not found — click "Edit if wrong"' : '';
+    document.getElementById('m-sa-status').style.color = '#BA7517';
+  }
+}
+
+function toggleSA4Edit(){
+  var sa4El = document.getElementById('m-sa4');
+  var sa3El = document.getElementById('m-sa3');
+  var link = document.getElementById('m-sa-edit');
+  if (sa4El.readOnly) {
+    sa4El.readOnly = false; sa3El.readOnly = false;
+    link.textContent = 'Use auto-lookup';
+    document.getElementById('m-sa-status').textContent = 'manual override';
+    document.getElementById('m-sa-status').style.color = '#185FA5';
+  } else {
+    sa4El.readOnly = true; sa3El.readOnly = true;
+    link.textContent = 'Edit if wrong';
+    onManualSuburbOrStateChange();
+  }
+}
+
+function onSaleTypeChange(prefix){
+  prefix = prefix || 'm';
+  var sale = document.getElementById(prefix+'-sale').value;
+  document.getElementById(prefix+'-auction-row').style.display = (sale==='Auction') ? 'block' : 'none';
+}
+
+function submitManualProperty(){
+  var errEl = document.getElementById('m-err');
+  errEl.textContent = '';
+  var payload = {
+    state: document.getElementById('m-state').value,
+    address: document.getElementById('m-addr').value.trim(),
+    suburb: document.getElementById('m-suburb').value.trim(),
+    postcode: document.getElementById('m-postcode').value.trim(),
+    price: parseFloat(document.getElementById('m-price').value)||0,
+    land: parseFloat(document.getElementById('m-land').value)||0,
+    design_type: document.getElementById('m-design').value,
+    sale_type: document.getElementById('m-sale').value,
+    auction_date: document.getElementById('m-auction-date').value,
+    sa4: document.getElementById('m-sa4').value.trim(),
+    sa3: document.getElementById('m-sa3').value.trim()
+  };
+  // Lightweight client-side guardrails (server is the source of truth)
+  if (!payload.address || payload.address.length < 5) { errEl.textContent='Address is required.'; return; }
+  if (!payload.suburb) { errEl.textContent='Suburb is required.'; return; }
+  if (payload.postcode && !/^\d{4}$/.test(payload.postcode)) { errEl.textContent='Postcode must be 4 digits.'; return; }
+  if (!(payload.price >= 100000)) { errEl.textContent='Price must be at least $100,000.'; return; }
+  if (!(payload.land > 0 && payload.land <= 1000)) { errEl.textContent='Land size must be between 1 and 1000 m\u00b2.'; return; }
+  if (payload.sale_type === 'Auction' && !payload.auction_date) {
+    errEl.textContent='Auction date is required for auction sales.'; return;
+  }
+
+  var btn = document.getElementById('m-confirm');
+  btn.disabled = true; btn.textContent = 'Adding…';
+  fetch('/api/manual-properties', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      if (!res.ok || !res.j.ok) {
+        errEl.textContent = (res.j && res.j.error) || 'Add failed';
+        btn.disabled = false; btn.textContent = 'Add property';
+        return;
+      }
+      // Server returned the canonical property — append locally and re-render
+      window.manualPropsRaw.push(res.j.property);
+      mergeManualIntoState();
+      closeAddManualModal();
+      showManualToast('\u2713 Property added: '+res.j.property.address);
+    }).catch(function(e){
+      errEl.textContent = 'Network error: '+e;
+      btn.disabled = false; btn.textContent = 'Add property';
+    });
+}
+
+// ---- Edit modal ----
+function openEditManualModal(manualId, ev){
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  var r = (window.manualPropsRaw||[]).find(function(x){ return x.id === manualId; });
+  if (!r) { alert('Manual property not found in local cache. Refresh the page.'); return; }
+  window._manualEditing = r;
+  document.getElementById('e-addr').textContent = r.address;
+  document.getElementById('e-state').value = r.state;
+  document.getElementById('e-suburb').value = r.suburb || '';
+  document.getElementById('e-postcode').value = r.postcode || '';
+  document.getElementById('e-price').value = r.price;
+  document.getElementById('e-land').value = r.land;
+  document.getElementById('e-design').value = r.design_type;
+  document.getElementById('e-sale').value = r.sale_type;
+  document.getElementById('e-auction-date').value = r.auction_date || '';
+  document.getElementById('e-auction-row').style.display = (r.sale_type === 'Auction') ? 'block' : 'none';
+  document.getElementById('e-sa4').value = r.sa4 || '';
+  document.getElementById('e-sa3').value = r.sa3 || '';
+  document.getElementById('e-recompute').checked = false;
+  document.getElementById('e-err').textContent = '';
+  document.getElementById('e-confirm').disabled = false;
+  document.getElementById('e-confirm').textContent = 'Save changes';
+  // Admin-only delete button
+  var u = window.CURRENT_USER;
+  var del = document.getElementById('e-delete');
+  if (u && u.is_admin) { del.style.display='inline-block'; }
+  else { del.style.display='none'; }
+  document.getElementById('edit-manual-modal').classList.add('show');
+}
+function closeEditManualModal(){
+  document.getElementById('edit-manual-modal').classList.remove('show');
+  window._manualEditing = null;
+}
+
+function submitManualEdit(){
+  if (!window._manualEditing) return;
+  var errEl = document.getElementById('e-err');
+  errEl.textContent = '';
+  var payload = {
+    state: document.getElementById('e-state').value,
+    suburb: document.getElementById('e-suburb').value.trim(),
+    postcode: document.getElementById('e-postcode').value.trim(),
+    price: parseFloat(document.getElementById('e-price').value)||0,
+    land: parseFloat(document.getElementById('e-land').value)||0,
+    design_type: document.getElementById('e-design').value,
+    sale_type: document.getElementById('e-sale').value,
+    auction_date: document.getElementById('e-auction-date').value,
+    sa4: document.getElementById('e-sa4').value.trim(),
+    sa3: document.getElementById('e-sa3').value.trim()
+  };
+  if (!payload.suburb) { errEl.textContent='Suburb is required.'; return; }
+  if (payload.postcode && !/^\d{4}$/.test(payload.postcode)) { errEl.textContent='Postcode must be 4 digits.'; return; }
+  if (!(payload.price >= 100000)) { errEl.textContent='Price must be at least $100,000.'; return; }
+  if (!(payload.land > 0 && payload.land <= 1000)) { errEl.textContent='Land size must be between 1 and 1000 m\u00b2.'; return; }
+  if (payload.sale_type === 'Auction' && !payload.auction_date) {
+    errEl.textContent='Auction date is required for auction sales.'; return;
+  }
+  var qs = document.getElementById('e-recompute').checked ? '?recompute_amenities=true' : '';
+  var mid = window._manualEditing.id;
+  var btn = document.getElementById('e-confirm');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  fetch('/api/manual-properties/'+mid+qs, {
+    method:'PUT', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      if (!res.ok || !res.j.ok) {
+        errEl.textContent = (res.j && res.j.error) || 'Save failed';
+        btn.disabled = false; btn.textContent = 'Save changes';
+        return;
+      }
+      var idx = window.manualPropsRaw.findIndex(function(x){ return x.id === mid; });
+      if (idx >= 0) window.manualPropsRaw[idx] = res.j.property;
+      mergeManualIntoState();
+      closeEditManualModal();
+      showManualToast('\u2713 Saved: '+res.j.property.address);
+    }).catch(function(e){
+      errEl.textContent = 'Network error: '+e;
+      btn.disabled = false; btn.textContent = 'Save changes';
+    });
+}
+
+function deleteManualFromEditModal(){
+  if (!window._manualEditing) return;
+  var addr = window._manualEditing.address;
+  if (!confirm('Permanently delete this manual property?\n\n'+addr+'\n\nThis cannot be undone.')) return;
+  var mid = window._manualEditing.id;
+  var btn = document.getElementById('e-delete');
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  fetch('/api/manual-properties/'+mid, {
+    method:'DELETE', credentials:'same-origin'
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      if (!res.ok || !res.j.ok) {
+        document.getElementById('e-err').textContent = (res.j && res.j.error) || 'Delete failed';
+        btn.disabled = false; btn.textContent = 'Delete property';
+        return;
+      }
+      window.manualPropsRaw = window.manualPropsRaw.filter(function(x){ return x.id !== mid; });
+      mergeManualIntoState();
+      closeEditManualModal();
+      showManualToast('\u2713 Deleted.');
+    }).catch(function(e){
+      document.getElementById('e-err').textContent = 'Network error: '+e;
+      btn.disabled = false; btn.textContent = 'Delete property';
+    });
+}
+
+function showManualToast(msg){
+  var t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0F6E56;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  document.body.appendChild(t);
+  setTimeout(function(){ t.style.transition='opacity .3s'; t.style.opacity='0'; }, 2400);
+  setTimeout(function(){ t.remove(); }, 2800);
+}
+</script>
+
+<!-- ============ C2: ADD / EDIT MANUAL PROPERTY MODALS ============ -->
+<style>
+#add-manual-modal,#edit-manual-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9200;display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+#add-manual-modal.show,#edit-manual-modal.show{display:flex}
+#add-manual-modal .card,#edit-manual-modal .card{background:#fff;border-radius:12px;width:100%;max-width:560px;box-shadow:0 8px 32px rgba(0,0,0,.25);overflow:hidden}
+#add-manual-modal .head,#edit-manual-modal .head{padding:14px 20px;background:#0F6E56;color:#fff;font-weight:700;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+#edit-manual-modal .head{background:#185FA5}
+#add-manual-modal .head .x,#edit-manual-modal .head .x{cursor:pointer;font-size:18px;opacity:.85}
+#add-manual-modal .body,#edit-manual-modal .body{padding:18px 20px;max-height:70vh;overflow-y:auto}
+.mfgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mfgrid .full{grid-column:1/-1}
+.mfgrid label{display:block;font-size:10px;font-weight:700;color:#6B7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.mfgrid input,.mfgrid select{width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:6px;font-family:Arial;font-size:13px;background:#fff}
+.mfgrid input:focus,.mfgrid select:focus{outline:none;border-color:#0F6E56}
+.mfgrid input[readonly]{background:#f5f5f3;color:#6B7280;cursor:not-allowed}
+.mfgrid input:disabled{background:#f0f0ee;color:#9CA3AF}
+.sa-line{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.sa-line .status{font-size:10px;font-weight:600}
+.sa-line .editlink{font-size:11px;color:#185FA5;font-weight:600;cursor:pointer;text-decoration:underline}
+#add-manual-modal .err,#edit-manual-modal .err{font-size:11px;color:#A32D2D;margin-top:10px;min-height:14px}
+#add-manual-modal .foot,#edit-manual-modal .foot{display:flex;justify-content:space-between;gap:8px;padding:12px 20px;background:#f5f5f3;border-top:1px solid #e5e7eb;flex-wrap:wrap}
+#add-manual-modal .foot .right,#edit-manual-modal .foot .right{display:flex;gap:8px;margin-left:auto}
+#add-manual-modal .foot button,#edit-manual-modal .foot button{padding:8px 16px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+.btn-cancel{background:#e5e7eb;color:#374151}
+.btn-confirm{background:#0F6E56;color:#fff}
+.btn-confirm:disabled{background:#a7a7a7;cursor:not-allowed}
+#edit-manual-modal .btn-confirm{background:#185FA5}
+.btn-delete{background:#A32D2D;color:#fff}
+.btn-delete:disabled{background:#a7a7a7;cursor:not-allowed}
+.edit-addr-pill{display:block;background:#f0f5fb;border:1px solid #c8ddf5;padding:7px 10px;border-radius:6px;font-size:12px;color:#0C447C;font-weight:700;word-break:break-word}
+.recompute-row{margin-top:10px;font-size:12px;color:#374151;display:flex;align-items:center;gap:6px}
+.recompute-row input{margin:0}
+</style>
+
+<div id="add-manual-modal" role="dialog" aria-modal="true">
+  <div class="card" onclick="event.stopPropagation()">
+    <div class="head">
+      <span>&#43; Add property manually</span>
+      <span class="x" onclick="closeAddManualModal()">&times;</span>
+    </div>
+    <div class="body">
+      <div class="mfgrid">
+        <div class="full">
+          <label for="m-addr">Address *</label>
+          <input type="text" id="m-addr" placeholder="e.g. 12 Smith Street, Thornbury VIC 3071">
+        </div>
+        <div>
+          <label for="m-state">State *</label>
+          <select id="m-state" onchange="onManualSuburbOrStateChange()">
+            <option value="vic">VIC</option>
+            <option value="nsw">NSW</option>
+            <option value="qld">QLD</option>
+          </select>
+        </div>
+        <div>
+          <label for="m-suburb">Suburb *</label>
+          <input type="text" id="m-suburb" placeholder="Thornbury" oninput="onManualSuburbOrStateChange()">
+        </div>
+        <div>
+          <label for="m-postcode">Postcode</label>
+          <input type="text" id="m-postcode" placeholder="3071" maxlength="4">
+        </div>
+        <div>
+          <label for="m-price">Price (AUD) *</label>
+          <input type="number" id="m-price" placeholder="850000" min="100000" step="1000">
+        </div>
+        <div>
+          <label for="m-land">Land size (m&#178;) *</label>
+          <input type="number" id="m-land" placeholder="450" min="1" max="1000">
+        </div>
+        <div>
+          <label for="m-design">Build model *</label>
+          <select id="m-design">
+            <option value="2p">2P House</option>
+            <option value="3p">3P House</option>
+            <option value="dp">Duplex 2P</option>
+          </select>
+        </div>
+        <div>
+          <label for="m-sale">Sale type *</label>
+          <select id="m-sale" onchange="onSaleTypeChange('m')">
+            <option>Private Sale</option>
+            <option>Auction</option>
+            <option>Off-market</option>
+            <option>Expression of Interest</option>
+          </select>
+        </div>
+        <div class="full" id="m-auction-row" style="display:none">
+          <label for="m-auction-date">Auction date *</label>
+          <input type="date" id="m-auction-date">
+        </div>
+        <div class="full">
+          <div class="sa-line">
+            <label style="margin-bottom:0">SA4 / SA3 area</label>
+            <span>
+              <span class="status" id="m-sa-status"></span>
+              <span class="editlink" id="m-sa-edit" onclick="toggleSA4Edit()">Edit if wrong</span>
+            </span>
+          </div>
+          <div class="mfgrid" style="gap:8px">
+            <input type="text" id="m-sa4" placeholder="SA4" readonly>
+            <input type="text" id="m-sa3" placeholder="SA3" readonly>
+          </div>
+        </div>
+      </div>
+      <div class="err" id="m-err"></div>
+    </div>
+    <div class="foot">
+      <div class="right">
+        <button type="button" class="btn-cancel" onclick="closeAddManualModal()">Cancel</button>
+        <button type="button" class="btn-confirm" id="m-confirm" onclick="submitManualProperty()">Add property</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="edit-manual-modal" role="dialog" aria-modal="true">
+  <div class="card" onclick="event.stopPropagation()">
+    <div class="head">
+      <span>&#9998; Edit manual property</span>
+      <span class="x" onclick="closeEditManualModal()">&times;</span>
+    </div>
+    <div class="body">
+      <label style="display:block;font-size:10px;font-weight:700;color:#6B7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Address (locked)</label>
+      <span class="edit-addr-pill" id="e-addr"></span>
+      <p style="font-size:11px;color:#6B7280;margin:6px 0 14px">The address is the matching key for hide/restore — it can't be changed. Delete and re-add if needed.</p>
+      <div class="mfgrid">
+        <div>
+          <label for="e-state">State</label>
+          <select id="e-state">
+            <option value="vic">VIC</option>
+            <option value="nsw">NSW</option>
+            <option value="qld">QLD</option>
+          </select>
+        </div>
+        <div>
+          <label for="e-suburb">Suburb</label>
+          <input type="text" id="e-suburb">
+        </div>
+        <div>
+          <label for="e-postcode">Postcode</label>
+          <input type="text" id="e-postcode" maxlength="4">
+        </div>
+        <div>
+          <label for="e-price">Price (AUD)</label>
+          <input type="number" id="e-price" min="100000" step="1000">
+        </div>
+        <div>
+          <label for="e-land">Land size (m&#178;)</label>
+          <input type="number" id="e-land" min="1" max="1000">
+        </div>
+        <div>
+          <label for="e-design">Build model</label>
+          <select id="e-design">
+            <option value="2p">2P House</option>
+            <option value="3p">3P House</option>
+            <option value="dp">Duplex 2P</option>
+          </select>
+        </div>
+        <div>
+          <label for="e-sale">Sale type</label>
+          <select id="e-sale" onchange="onSaleTypeChange('e')">
+            <option>Private Sale</option>
+            <option>Auction</option>
+            <option>Off-market</option>
+            <option>Expression of Interest</option>
+          </select>
+        </div>
+        <div class="full" id="e-auction-row" style="display:none">
+          <label for="e-auction-date">Auction date</label>
+          <input type="date" id="e-auction-date">
+        </div>
+        <div>
+          <label for="e-sa4">SA4</label>
+          <input type="text" id="e-sa4">
+        </div>
+        <div>
+          <label for="e-sa3">SA3</label>
+          <input type="text" id="e-sa3">
+        </div>
+      </div>
+      <label class="recompute-row">
+        <input type="checkbox" id="e-recompute">
+        <span>Recompute amenities (re-runs geocode + Google Places lookups)</span>
+      </label>
+      <div class="err" id="e-err"></div>
+    </div>
+    <div class="foot">
+      <button type="button" class="btn-delete" id="e-delete" onclick="deleteManualFromEditModal()" style="display:none">Delete property</button>
+      <div class="right">
+        <button type="button" class="btn-cancel" onclick="closeEditManualModal()">Cancel</button>
+        <button type="button" class="btn-confirm" id="e-confirm" onclick="submitManualEdit()">Save changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+// (intentionally empty placeholder — keeps script-tag balance with the
+// existing settings-modal block below)
 </script>
 <!-- ============ SETTINGS MODAL ============ -->
 <style>

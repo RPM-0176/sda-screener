@@ -69,6 +69,7 @@ form.inline{display:inline}
     <a href="/admin/users" class="tab {% if section=='users' %}on{% endif %}">Manage users</a>
     <a href="/admin/upload_page" class="tab" style="background:#0F6E56;color:#fff">Upload CSV data</a>
     <a href="/admin/upload_sda_page" class="tab" style="background:#185FA5;color:#fff">Upload SDA market</a>
+    <a href="/admin/upload_supply_page" class="tab" style="background:#0F6E56;color:#fff">Upload SDA supply</a>
   </div>
 
   {% if section == 'activity' %}
@@ -571,6 +572,26 @@ def init_db():
             ON manual_properties(state, address_key);
         CREATE INDEX IF NOT EXISTS idx_manual_properties_state
             ON manual_properties(state);
+        -- C3: SA2-level SDA supply & demand snapshot
+        -- One row per (state, SA2). data_json holds the full aggregation:
+        --   counts, deficit, provider lists, design-category mix.
+        -- The full table is sent to the client on dashboard load so badge
+        -- rendering and panel display happen instantly without per-row
+        -- API calls. The blob is keyed off (state, SA2) because the same
+        -- SA2 name CAN repeat across states (e.g. "Wellington" in NSW vs VIC).
+        CREATE TABLE IF NOT EXISTS sda_supply (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,            -- vic | nsw | qld
+            sa2 TEXT NOT NULL,
+            sa3 TEXT,
+            sa4 TEXT,
+            data_json TEXT NOT NULL,        -- aggregated supply blob
+            data_as_of TEXT,                -- date from the source files (e.g. 2025-12-31)
+            uploaded_by TEXT,
+            uploaded_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sda_supply_unique
+            ON sda_supply(state, sa2);
     """)
     db.commit()
     existing = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -1865,6 +1886,386 @@ def api_delete_manual_property(mid):
         'hide_rows_purged': purged,
     })
     return jsonify({'ok': True, 'hide_rows_purged': purged})
+
+
+# ===========================================================================
+# C3: SDA Supply intelligence (SA2-level)
+# ---------------------------------------------------------------------------
+# Two NDIS XLSX files (SDA-by-provider and Group-homes-by-provider) get
+# uploaded together by an admin. Per SA2, we compute:
+#   - Filled SDA places, vacancies, providers
+#   - Filled group-home places, vacancies, providers (future SDA demand,
+#     since group homes are being wound down and residents will need SDA)
+#   - Net 'conversion deficit' = filled_gh - sda_vacancies
+#   - Design-category mix of existing SDA stock
+# Robust is excluded from BOTH sides because RPG doesn't build for Robust
+# participants (they need dedicated specialty facilities, not HPS dwellings).
+# The aggregated blob is stored once and served to every client on dashboard
+# load — no per-row API calls.
+# ===========================================================================
+
+def _title_case_provider(name):
+    """Some provider names come in ALL CAPS, others Title Case. Normalise to
+    Title Case for display, but leave already-mixed names alone."""
+    if not name:
+        return ''
+    s = str(name).strip()
+    if any(c.islower() for c in s):
+        return s
+    out = []
+    for w in s.split():
+        if '&' in w or '/' in w:
+            out.append(w)
+        else:
+            out.append(w.title())
+    return ' '.join(out)
+
+
+def _parse_supply_xlsx(file_storage, kind):
+    """Parse one of the NDIS XLSX files into a list of dicts.
+    `kind` is 'sda' or 'gh'; both files have the same column structure.
+    Returns (rows, error_or_none, data_as_of_iso)."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(file_storage, read_only=True, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        return None, f'Could not open as XLSX: {e}', None
+
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        header = list(next(rows_iter))
+    except StopIteration:
+        return None, 'File is empty', None
+
+    # Required columns
+    required = ['State or Territory', 'SA4 Region', 'SA3 Region', 'SA2 Region',
+                'Provider name', 'Design category', 'Places', 'Vacancies']
+    missing = [c for c in required if c not in header]
+    if missing:
+        return None, f'Missing columns: {", ".join(missing)}', None
+
+    col = {name: header.index(name) for name in header if name in required + ['Date', 'Dwelling type']}
+
+    rows = []
+    data_date = None
+    for r in rows_iter:
+        if not r or all(v is None for v in r):
+            continue
+        try:
+            state = str(r[col['State or Territory']] or '').strip()
+            sa4 = str(r[col['SA4 Region']] or '').strip()
+            sa3 = str(r[col['SA3 Region']] or '').strip()
+            sa2 = str(r[col['SA2 Region']] or '').strip()
+            provider = str(r[col['Provider name']] or '').strip()
+            design = str(r[col['Design category']] or '').strip()
+            places = int(r[col['Places']] or 0)
+            vacancies = int(r[col['Vacancies']] or 0)
+            if 'Dwelling type' in col:
+                dwelling = str(r[col['Dwelling type']] or '').strip()
+            else:
+                dwelling = ''
+            if 'Date' in col and r[col['Date']]:
+                d = r[col['Date']]
+                if hasattr(d, 'isoformat'):
+                    data_date = d.isoformat()[:10]
+                else:
+                    data_date = str(d)[:10]
+        except (ValueError, IndexError, TypeError):
+            continue
+        if not state or not sa2:
+            continue
+        rows.append({
+            'state': state, 'sa4': sa4, 'sa3': sa3, 'sa2': sa2,
+            'provider': provider, 'design': design, 'dwelling': dwelling,
+            'places': places, 'vacancies': vacancies,
+        })
+
+    return rows, None, data_date
+
+
+def _aggregate_supply(sda_rows, gh_rows):
+    """Combine per-row supply data into per-SA2 aggregates.
+    Excludes Robust dwellings from both sides — RPG only builds HPS dwellings
+    accepting HPS/FA/IL participants; Robust is a separate market segment.
+
+    Returns {state_code: {sa2_name: aggregate_dict}}."""
+    STATE_MAP = {
+        'Victoria': 'vic',
+        'New South Wales': 'nsw',
+        'Queensland': 'qld',
+    }
+
+    # Filter Robust out of both inputs
+    sda_rel = [r for r in sda_rows if r['design'] != 'Robust']
+    gh_rel  = [r for r in gh_rows  if r['design'] != 'Robust']
+
+    # Index by (state, sa2)
+    by_sa2 = {}
+    for r in sda_rel:
+        st = STATE_MAP.get(r['state'])
+        if not st:
+            continue
+        key = (st, r['sa2'])
+        rec = by_sa2.setdefault(key, _empty_sa2_record(r['sa3'], r['sa4']))
+        rec['sda_places'] += r['places']
+        rec['sda_vacancies'] += r['vacancies']
+        # Provider tally for SDA side
+        prov = rec['sda_provider_idx'].setdefault(r['provider'], {'places': 0, 'vacancies': 0})
+        prov['places'] += r['places']
+        prov['vacancies'] += r['vacancies']
+        # Design mix
+        design_key = {
+            'High physical support': 'HPS',
+            'Fully accessible': 'FA',
+            'Improved liveability': 'IL',
+            'Multiple design category': 'Multi',
+        }.get(r['design'])
+        if design_key:
+            rec['design_mix'][design_key] += r['places']
+
+    for r in gh_rel:
+        st = STATE_MAP.get(r['state'])
+        if not st:
+            continue
+        key = (st, r['sa2'])
+        rec = by_sa2.setdefault(key, _empty_sa2_record(r['sa3'], r['sa4']))
+        rec['gh_places'] += r['places']
+        rec['gh_vacancies'] += r['vacancies']
+        prov = rec['gh_provider_idx'].setdefault(r['provider'], {'places': 0, 'vacancies': 0})
+        prov['places'] += r['places']
+        prov['vacancies'] += r['vacancies']
+
+    # Finalise: compute derived fields and turn provider indices into sorted lists
+    out = {'vic': {}, 'nsw': {}, 'qld': {}}
+    for (st, sa2), rec in by_sa2.items():
+        rec['sda_filled'] = rec['sda_places'] - rec['sda_vacancies']
+        rec['gh_filled']  = rec['gh_places']  - rec['gh_vacancies']
+        rec['deficit']    = rec['gh_filled'] - rec['sda_vacancies']
+        # Convert provider dicts to lists sorted by places desc
+        rec['sda_providers'] = sorted(
+            ({'name': _title_case_provider(n), **v} for n, v in rec['sda_provider_idx'].items()),
+            key=lambda x: x['places'], reverse=True,
+        )
+        rec['gh_providers'] = sorted(
+            ({'name': _title_case_provider(n), **v} for n, v in rec['gh_provider_idx'].items()),
+            key=lambda x: x['places'], reverse=True,
+        )
+        del rec['sda_provider_idx']
+        del rec['gh_provider_idx']
+        out[st][sa2] = rec
+    return out
+
+
+def _empty_sa2_record(sa3, sa4):
+    return {
+        'sa3': sa3, 'sa4': sa4,
+        'sda_places': 0, 'sda_vacancies': 0, 'sda_filled': 0,
+        'gh_places': 0, 'gh_vacancies': 0, 'gh_filled': 0,
+        'deficit': 0,
+        'sda_provider_idx': {},
+        'gh_provider_idx': {},
+        'design_mix': {'HPS': 0, 'FA': 0, 'IL': 0, 'Multi': 0},
+    }
+
+
+@app.route('/api/sda-supply')
+@login_required
+def api_sda_supply():
+    """Return the full SA2 supply snapshot.
+
+    Shape: {'as_of': '2025-12-31', 'data': {state: {sa2: {...aggregate}}}}.
+    Small enough (~400KB JSON) to ship in one request — the client caches it
+    in memory and joins it to property rows on render."""
+    db = get_db()
+    rows = db.execute(
+        'SELECT state, sa2, data_json, data_as_of FROM sda_supply'
+    ).fetchall()
+    db.close()
+    data = {'vic': {}, 'nsw': {}, 'qld': {}}
+    as_of = None
+    for r in rows:
+        try:
+            data[r['state']][r['sa2']] = json.loads(r['data_json'])
+            if r['data_as_of'] and (not as_of or r['data_as_of'] > as_of):
+                as_of = r['data_as_of']
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return jsonify({'as_of': as_of, 'data': data})
+
+
+UPLOAD_SUPPLY_HTML = """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Upload SDA Supply Data - SDA Screener</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#f3f4f6;color:#111}
+.top{background:#002060;color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center}
+.top h1{font-size:15px;font-weight:700}
+.top a{color:#93c5fd;font-size:13px;text-decoration:none;margin-left:16px}
+.wrap{max-width:900px;margin:0 auto;padding:24px}
+.card{background:#fff;border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.1);margin-bottom:16px}
+.card h2{font-size:15px;font-weight:700;color:#002060;margin-bottom:10px;padding-bottom:10px;border-bottom:2px solid #e5e7eb}
+.help{font-size:12px;color:#374151;line-height:1.6;background:#f9fafb;padding:14px 18px;border-radius:6px;margin-bottom:18px;border-left:3px solid #0F6E56}
+.help b{color:#0F6E56}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:11px;color:#6B7280;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.field input[type=file]{width:100%;padding:10px;border:2px dashed #d1d5db;border-radius:8px;background:#f9fafb;font-size:12px;cursor:pointer}
+.field input[type=file]:hover{border-color:#0F6E56;background:#f0fdf4}
+.btn{padding:12px 24px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700;width:100%}
+.btn:hover{background:#0a5942}
+.msg{padding:12px 16px;border-radius:6px;margin-bottom:16px;font-size:13px;line-height:1.5}
+.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.er{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px}
+.status-card{border:2px solid #e5e7eb;border-radius:8px;padding:14px;text-align:center}
+.status-card.loaded{border-color:#0F6E56;background:#f0fdf4}
+.status-state{font-size:14px;font-weight:800;color:#002060;margin-bottom:6px}
+.status-count{font-size:18px;color:#0F6E56;font-weight:700}
+.status-empty{font-size:12px;color:#9CA3AF}
+.status-date{font-size:10px;color:#6B7280;margin-top:6px}
+.tabs{display:flex;gap:4px;margin-bottom:16px}
+.tab{padding:10px 18px;border-radius:6px;font-size:13px;font-weight:600;background:#e5e7eb;color:#374151;text-decoration:none;display:inline-block}
+.tab.on{background:#002060;color:#fff}
+</style></head>
+<body>
+<div class="top">
+  <h1>SDA Screener - Upload SDA Supply Data</h1>
+  <div>
+    <a href="/admin">Admin panel</a>
+    <a href="/dashboard">Dashboard</a>
+  </div>
+</div>
+<div class="wrap">
+  <div class="tabs">
+    <a href="/admin/upload_page" class="tab">Property data (CSV)</a>
+    <a href="/admin/upload_sda_page" class="tab">SDA market</a>
+    <a href="/admin/upload_supply_page" class="tab on">SDA supply (SA2)</a>
+  </div>
+  {{MSG_BLOCK}}
+  <div class="card">
+    <h2>Current data status</h2>
+    <div class="status-grid">{{STATUS_GRID}}</div>
+    {{AS_OF}}
+  </div>
+  <div class="card">
+    <h2>Upload new snapshot</h2>
+    <div class="help">
+      Upload <b>both</b> NDIS quarterly XLSX files together. The server excludes Robust dwellings from both sides
+      (since RPG only builds HPS dwellings) and computes the conversion deficit per SA2.
+      Uploading replaces all existing supply data — old rows are cleared first.
+      <br><br>
+      <b>Source:</b> NDIS quarterly market position statements, "SA2 by provider" exports for SDA and Group Homes.
+    </div>
+    <form method="POST" action="/admin/upload_supply" enctype="multipart/form-data">
+      <div class="field">
+        <label for="sda_file">SDA file (sa2_by_provider_SDA.xlsx)</label>
+        <input type="file" id="sda_file" name="sda_file" accept=".xlsx" required>
+      </div>
+      <div class="field">
+        <label for="gh_file">Group homes file (sa2_by_provider_Group_Homes.xlsx)</label>
+        <input type="file" id="gh_file" name="gh_file" accept=".xlsx" required>
+      </div>
+      <button class="btn" type="submit">Upload &amp; aggregate</button>
+    </form>
+  </div>
+</div>
+</body></html>"""
+
+
+@app.route('/admin/upload_supply_page')
+@admin_required
+def upload_supply_page():
+    """Render the SDA supply upload page with current data status."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT state, COUNT(*) AS sa2s, MAX(uploaded_at) AS uploaded_at,
+               MAX(uploaded_by) AS uploaded_by, MAX(data_as_of) AS data_as_of
+        FROM sda_supply GROUP BY state
+    """).fetchall()
+    db.close()
+    status_by_state = {r['state']: dict(r) for r in rows}
+    grid_html = ''
+    for st, label in [('vic', 'VIC'), ('nsw', 'NSW'), ('qld', 'QLD')]:
+        s = status_by_state.get(st)
+        if s and s['sa2s']:
+            grid_html += (f'<div class="status-card loaded">'
+                          f'<div class="status-state">{label}</div>'
+                          f'<div class="status-count">{s["sa2s"]} SA2s</div>'
+                          f'<div class="status-date">uploaded {(s["uploaded_at"] or "")[:10]} by {s["uploaded_by"] or "?"}</div>'
+                          f'</div>')
+        else:
+            grid_html += (f'<div class="status-card">'
+                          f'<div class="status-state">{label}</div>'
+                          f'<div class="status-empty">no data</div>'
+                          f'</div>')
+    overall_as_of = max(
+        (r['data_as_of'] for r in rows if r['data_as_of']), default=None
+    )
+    as_of_html = (f'<div style="font-size:11px;color:#6B7280;text-align:center;margin-top:8px">'
+                  f'Data as of {overall_as_of}</div>') if overall_as_of else ''
+
+    msg = request.args.get('msg', '')
+    msg_type = request.args.get('msg_type', 'ok')
+    msg_block = f'<div class="msg {msg_type}">{msg}</div>' if msg else ''
+
+    html = (UPLOAD_SUPPLY_HTML
+            .replace('{{STATUS_GRID}}', grid_html)
+            .replace('{{AS_OF}}', as_of_html)
+            .replace('{{MSG_BLOCK}}', msg_block))
+    return make_response(html)
+
+
+@app.route('/admin/upload_supply', methods=['POST'])
+@admin_required
+def upload_supply():
+    """Accept both NDIS XLSX files, aggregate, and replace the stored
+    supply snapshot. This is an all-or-nothing replace so the dashboard
+    always shows a consistent snapshot."""
+    sda_file = request.files.get('sda_file')
+    gh_file = request.files.get('gh_file')
+    if not sda_file or not gh_file:
+        return redirect('/admin/upload_supply_page?msg=Both+files+required&msg_type=er')
+
+    sda_rows, err, sda_date = _parse_supply_xlsx(sda_file, 'sda')
+    if err:
+        return redirect(f'/admin/upload_supply_page?msg=SDA+file:+{quote_plus(err)}&msg_type=er')
+    gh_rows, err, gh_date = _parse_supply_xlsx(gh_file, 'gh')
+    if err:
+        return redirect(f'/admin/upload_supply_page?msg=Group+home+file:+{quote_plus(err)}&msg_type=er')
+
+    # Sanity check: file looks like NDIS data?
+    if len(sda_rows) < 100:
+        return redirect(f'/admin/upload_supply_page?msg=SDA+file+only+had+{len(sda_rows)}+rows+(expected+thousands)&msg_type=er')
+    if len(gh_rows) < 50:
+        return redirect(f'/admin/upload_supply_page?msg=Group+home+file+only+had+{len(gh_rows)}+rows&msg_type=er')
+
+    aggregated = _aggregate_supply(sda_rows, gh_rows)
+    data_as_of = sda_date or gh_date
+
+    u = request.current_user
+    by_user = u.get('full_name') or u.get('username') or '?'
+
+    db = get_db()
+    db.execute('DELETE FROM sda_supply')
+    total_inserted = 0
+    for st, sa2_map in aggregated.items():
+        for sa2, rec in sa2_map.items():
+            db.execute(
+                """INSERT INTO sda_supply
+                   (state, sa2, sa3, sa4, data_json, data_as_of, uploaded_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (st, sa2, rec.get('sa3', ''), rec.get('sa4', ''),
+                 json.dumps(rec, separators=(',', ':')),
+                 data_as_of, by_user)
+            )
+            total_inserted += 1
+    db.commit()
+    db.close()
+    log_event('sda_supply_uploaded', {
+        'sa2_count': total_inserted, 'data_as_of': data_as_of,
+        'sda_rows': len(sda_rows), 'gh_rows': len(gh_rows),
+    })
+    return redirect(f'/admin/upload_supply_page?msg=Loaded+{total_inserted}+SA2s+(data+as+of+{data_as_of or "unknown"})&msg_type=ok')
 
 
 @app.route('/admin/upload_dashboard', methods=['POST'])

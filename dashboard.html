@@ -104,6 +104,7 @@ tr.dr:hover td{background:#fafaf9}
       
       <button class="clrbtn2" onclick="openLookup()" style="color:#185FA5;border-color:#185FA5;font-weight:700">&#128269; Suburb lookup</button>
       <button class="clrbtn2" onclick="openAddManualModal()" style="color:#0F6E56;border-color:#0F6E56;font-weight:700">&#43; Add property</button>
+      <button class="clrbtn2" id="manual-tab-btn" onclick="openManualTab()" style="color:#0F6E56;border-color:#0F6E56;font-weight:700;opacity:0.55">&#127968; Manual properties (0)</button>
       <button class="clrbtn2" id="shortlist-btn" onclick="openShortlist()" style="color:#F59E0B;border-color:#F59E0B;font-weight:700;opacity:0.55">&#9733; Compare shortlist (0)</button>
   </div>
 </div>
@@ -8443,7 +8444,7 @@ function submitManualProperty(){
       window.manualPropsRaw.push(res.j.property);
       mergeManualIntoState();
       closeAddManualModal();
-      showManualToast('\u2713 Property added: '+res.j.property.address);
+      showManualToast('\u2713 Property added. View all manual properties \u2192', function(){ openManualTab(); });
     }).catch(function(e){
       errEl.textContent = 'Network error: '+e;
       btn.disabled = false; btn.textContent = 'Add property';
@@ -8559,13 +8560,21 @@ function deleteManualFromEditModal(){
     });
 }
 
-function showManualToast(msg){
+function showManualToast(msg, onClick){
   var t = document.createElement('div');
   t.textContent = msg;
   t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0F6E56;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  if (typeof onClick === 'function') {
+    t.style.cursor = 'pointer';
+    t.title = 'Click to open';
+    t.addEventListener('click', function(){
+      onClick();
+      t.remove();
+    });
+  }
   document.body.appendChild(t);
-  setTimeout(function(){ t.style.transition='opacity .3s'; t.style.opacity='0'; }, 2400);
-  setTimeout(function(){ t.remove(); }, 2800);
+  setTimeout(function(){ t.style.transition='opacity .3s'; t.style.opacity='0'; }, 4000);
+  setTimeout(function(){ if (t.parentNode) t.remove(); }, 4400);
 }
 </script>
 
@@ -8765,6 +8774,266 @@ function showManualToast(msg){
     </div>
   </div>
 </div>
+
+<!-- ============ C2: MANUAL PROPERTIES TAB ============ -->
+<style>
+#manual-list-modal{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9200;display:none;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
+#manual-list-modal.show{display:flex}
+#manual-list-modal .card{background:#fff;border-radius:12px;width:100%;max-width:1280px;box-shadow:0 8px 32px rgba(0,0,0,.25);overflow:hidden}
+#manual-list-modal .head{padding:14px 20px;background:#0F6E56;color:#fff;font-weight:700;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+#manual-list-modal .head .x{cursor:pointer;font-size:20px;opacity:.85;line-height:1}
+#manual-list-modal .body{padding:18px 20px;max-height:75vh;overflow-y:auto}
+#manual-list-modal .toolbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+#manual-list-modal .toolbar p{font-size:11px;color:#6B7280;margin:0;flex:1;min-width:220px}
+#manual-list-modal .filter-row{display:flex;gap:6px;align-items:center}
+#manual-list-modal .filter-row select,#manual-list-modal .filter-row input{padding:5px 8px;border:1px solid #d1d5db;border-radius:5px;font-size:11px}
+#manual-list-modal table{width:100%;border-collapse:collapse;font-family:Arial;font-size:12px}
+#manual-list-modal th{padding:8px 10px;background:#e8f5ee;color:#0F6E56;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:2px solid #c7e6d3;position:sticky;top:0;white-space:nowrap}
+#manual-list-modal td{padding:8px 10px;border-bottom:1px solid #f1f5f0;vertical-align:middle}
+#manual-list-modal tr:hover td{background:#fafdfb}
+#manual-list-modal .addr-cell{font-weight:700;color:#0C447C;cursor:pointer}
+#manual-list-modal .addr-cell:hover{text-decoration:underline}
+#manual-list-modal .meta{font-size:10px;color:#9CA3AF;line-height:1.3}
+#manual-list-modal .row-actions{display:flex;gap:6px;align-items:center}
+#manual-list-modal .row-actions .iconbtn{cursor:pointer;font-size:14px;padding:3px 5px;border-radius:4px;border:1px solid transparent;background:transparent;line-height:1}
+#manual-list-modal .row-actions .pen{color:#185FA5}
+#manual-list-modal .row-actions .pen:hover{background:#e8f0fb;border-color:#185FA5}
+#manual-list-modal .row-actions .trash{color:#A32D2D}
+#manual-list-modal .row-actions .trash:hover{background:#fee2e2;border-color:#A32D2D}
+#manual-list-modal .empty{text-align:center;padding:48px 20px;color:#9CA3AF;font-size:13px}
+#manual-list-modal .empty .big{font-size:42px;margin-bottom:10px;opacity:.5}
+#manual-list-modal .foot{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:#f5f5f3;border-top:1px solid #e5e7eb;font-size:11px;color:#6B7280}
+#manual-list-modal .foot .btn-add{background:#0F6E56;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;padding:8px 14px}
+#manual-list-modal .pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;line-height:1.4}
+#manual-list-modal .pill-auction{background:#fef3c7;color:#92400e}
+#manual-list-modal .pill-private{background:#e8f0fb;color:#0C447C}
+#manual-list-modal .pill-offmarket{background:#f3e8ff;color:#5b21b6}
+#manual-list-modal .pill-eoi{background:#e0e7ff;color:#3730a3}
+.statebadge-vic{background:#e8f5ee;color:#0F6E56}
+.statebadge-nsw{background:#e8f0fb;color:#185FA5}
+.statebadge-qld{background:#fdf0d8;color:#BA7517}
+#manual-list-modal .statebadge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+</style>
+
+<div id="manual-list-modal" role="dialog" aria-modal="true">
+  <div class="card" onclick="event.stopPropagation()">
+    <div class="head">
+      <span>&#127968; Manual properties</span>
+      <span class="x" onclick="closeManualTab()">&times;</span>
+    </div>
+    <div class="body">
+      <div class="toolbar">
+        <p>Properties added by the team. Click any address to jump to its full screener detail; the pencil opens the edit modal.</p>
+        <div class="filter-row">
+          <select id="ml-state" onchange="renderManualList()">
+            <option value="">All states</option>
+            <option value="vic">VIC</option>
+            <option value="nsw">NSW</option>
+            <option value="qld">QLD</option>
+          </select>
+          <select id="ml-creator" onchange="renderManualList()">
+            <option value="">All people</option>
+          </select>
+          <input type="text" id="ml-search" placeholder="Search address/suburb..." oninput="renderManualList()" style="width:180px">
+        </div>
+      </div>
+      <div id="ml-content"></div>
+    </div>
+    <div class="foot">
+      <span id="ml-count">0 properties</span>
+      <button type="button" class="btn-add" onclick="closeManualTab();openAddManualModal()">&#43; Add another</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// C2: Manual properties tab — modal listing of all manual properties
+// with filters, jump-to-row, edit and (admin) delete actions.
+// Mirrors the shortlist-modal pattern: opened from the toolbar badge,
+// closes by overlay click or Escape, count badge stays in sync via
+// updateManualTabButton().
+// =====================================================================
+
+function updateManualTabButton(){
+  var btn = document.getElementById('manual-tab-btn');
+  if (!btn) return;
+  var n = (window.manualPropsRaw||[]).length;
+  btn.textContent = '\ud83c\udfe0 Manual properties (' + n + ')';
+  btn.style.opacity = n > 0 ? '1' : '0.55';
+}
+
+function openManualTab(){
+  // Populate the creator filter from the current set
+  var creatorSel = document.getElementById('ml-creator');
+  var seen = {};
+  var opts = '<option value="">All people</option>';
+  (window.manualPropsRaw||[]).forEach(function(r){
+    if (r.created_by_name && !seen[r.created_by_name]){
+      seen[r.created_by_name] = 1;
+      opts += '<option value="'+escHtml(r.created_by_name)+'">'+escHtml(r.created_by_name)+'</option>';
+    }
+  });
+  creatorSel.innerHTML = opts;
+  document.getElementById('ml-state').value = '';
+  document.getElementById('ml-search').value = '';
+  document.getElementById('manual-list-modal').classList.add('show');
+  renderManualList();
+}
+function closeManualTab(){
+  document.getElementById('manual-list-modal').classList.remove('show');
+}
+
+function renderManualList(){
+  var fState = document.getElementById('ml-state').value;
+  var fCreator = document.getElementById('ml-creator').value;
+  var fQ = (document.getElementById('ml-search').value||'').toLowerCase().trim();
+  var rows = (window.manualPropsRaw||[]).filter(function(r){
+    if (fState && r.state !== fState) return false;
+    if (fCreator && r.created_by_name !== fCreator) return false;
+    if (fQ) {
+      var hay = (r.address+' '+r.suburb+' '+(r.sa4||'')).toLowerCase();
+      if (hay.indexOf(fQ) < 0) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('ml-count').textContent = rows.length + ' propert' + (rows.length===1?'y':'ies');
+
+  if (!rows.length) {
+    var msg = (window.manualPropsRaw||[]).length === 0
+      ? 'No manual properties yet. Click "+ Add property" in the toolbar to add your first one.'
+      : 'No properties match the current filters.';
+    document.getElementById('ml-content').innerHTML =
+      '<div class="empty"><div class="big">\ud83c\udfe0</div><div>'+msg+'</div></div>';
+    return;
+  }
+
+  var u = window.CURRENT_USER;
+  var saleLabel = {'Private Sale':'pill-private','Auction':'pill-auction','Off-market':'pill-offmarket','Expression of Interest':'pill-eoi'};
+  var designLabel = {'2p':'2P House','3p':'3P House','dp':'Duplex 2P'};
+
+  var html = '<table>'
+    + '<thead><tr>'
+    + '<th>Address</th>'
+    + '<th>State</th>'
+    + '<th>Suburb</th>'
+    + '<th>Price</th>'
+    + '<th>Land</th>'
+    + '<th>Build</th>'
+    + '<th>Sale type</th>'
+    + '<th>Added by</th>'
+    + '<th>Last edited</th>'
+    + '<th></th>'
+    + '</tr></thead><tbody>';
+
+  rows.forEach(function(r){
+    var screenerId = 900000 + r.id;
+    var saleCls = saleLabel[r.sale_type] || 'pill-private';
+    var saleText = escHtml(r.sale_type) + (r.sale_type==='Auction' && r.auction_date ? ' · '+r.auction_date : '');
+    var canEdit = u && (u.is_admin || u.full_name === r.created_by_name);
+    var canDelete = u && u.is_admin;
+
+    var actions = '';
+    if (canEdit) actions += '<button class="iconbtn pen" title="Edit" onclick="event.stopPropagation();closeManualTab();openEditManualModal('+r.id+')">\u270e</button>';
+    if (canDelete) actions += '<button class="iconbtn trash" title="Delete" onclick="event.stopPropagation();deleteManualFromList('+r.id+')">\u2716</button>';
+
+    var lastEdited = r.last_edited_by_name
+      ? escHtml(r.last_edited_by_name) + '<div class="meta">'+(r.last_edited_at||'').substring(0,16)+'</div>'
+      : '<span class="meta">—</span>';
+
+    html += '<tr>'
+      + '<td><div class="addr-cell" onclick="jumpToManualRow('+screenerId+')" title="Jump to full detail">'+escHtml(r.address)+'</div>'
+      +   '<div class="meta">'+(r.postcode?escHtml(r.postcode)+' · ':'')+escHtml(r.sa4||'')+'</div></td>'
+      + '<td><span class="statebadge statebadge-'+r.state+'">'+r.state.toUpperCase()+'</span></td>'
+      + '<td>'+escHtml(r.suburb||'')+'</td>'
+      + '<td>'+fmtPrice(r.price)+'</td>'
+      + '<td>'+(r.land?Math.round(r.land)+'m\u00b2':'—')+'</td>'
+      + '<td>'+escHtml(designLabel[r.design_type]||r.design_type||'')+'</td>'
+      + '<td><span class="pill '+saleCls+'">'+saleText+'</span></td>'
+      + '<td>'+escHtml(r.created_by_name||'')+'<div class="meta">'+(r.created_at||'').substring(0,10)+'</div></td>'
+      + '<td>'+lastEdited+'</td>'
+      + '<td><div class="row-actions">'+actions+'</div></td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('ml-content').innerHTML = html;
+}
+
+function jumpToManualRow(screenerId){
+  closeManualTab();
+  // The row may currently be filtered out of view. We don't auto-clear
+  // user filters (that could be jarring), but we do scroll to the row if
+  // it exists in the DOM, and otherwise show a toast explaining why.
+  var row = document.getElementById('prow-'+screenerId);
+  if (!row) {
+    showManualToast('Row is filtered out — clear the filters in the toolbar to see it.');
+    return;
+  }
+  // Expand its detail and scroll
+  if (typeof toggleD === 'function') toggleD(screenerId);
+  setTimeout(function(){
+    var detail = document.getElementById('dtr-'+screenerId);
+    (detail || row).scrollIntoView({behavior:'smooth', block:'center'});
+    // Briefly highlight the row so the user can spot it
+    var origBg = row.style.background;
+    row.style.transition = 'background-color 0.6s';
+    row.style.background = '#fff8d6';
+    setTimeout(function(){ row.style.background = origBg; }, 1800);
+  }, 80);
+}
+
+function deleteManualFromList(manualId){
+  var r = (window.manualPropsRaw||[]).find(function(x){ return x.id === manualId; });
+  if (!r) return;
+  if (!confirm('Permanently delete this manual property?\n\n'+r.address+'\n\nThis cannot be undone.')) return;
+  fetch('/api/manual-properties/'+manualId, {method:'DELETE', credentials:'same-origin'})
+    .then(function(rsp){ return rsp.json().then(function(j){ return {ok:rsp.ok, j:j}; }); })
+    .then(function(res){
+      if (!res.ok || !res.j.ok) { alert((res.j && res.j.error) || 'Delete failed'); return; }
+      window.manualPropsRaw = window.manualPropsRaw.filter(function(x){ return x.id !== manualId; });
+      mergeManualIntoState();
+      renderManualList();
+      showManualToast('\u2713 Deleted.');
+    }).catch(function(e){ alert('Network error: '+e); });
+}
+
+// Hook the count badge into every state-merge so it stays current after
+// add/edit/delete without sprinkling updates through every callsite.
+(function(){
+  var origMerge = window.mergeManualIntoState;
+  if (typeof origMerge === 'function') {
+    window.mergeManualIntoState = function(){
+      var r = origMerge.apply(this, arguments);
+      updateManualTabButton();
+      // If the modal is open, refresh the list too
+      var m = document.getElementById('manual-list-modal');
+      if (m && m.classList.contains('show')) renderManualList();
+      return r;
+    };
+  }
+})();
+
+// Overlay click + Escape parity with the other modals
+document.getElementById('manual-list-modal').addEventListener('click', function(e){
+  if (e.target === this) closeManualTab();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && document.getElementById('manual-list-modal').classList.contains('show')){
+    closeManualTab();
+  }
+});
+
+// Update the badge once the initial fetch completes (race-safe: we wait
+// until manualPropsRaw exists, which it does as soon as loadManualProperties resolves).
+(function pollFirstLoad(){
+  var n = 0;
+  var t = setInterval(function(){
+    if (window.manualPropsRaw) { updateManualTabButton(); clearInterval(t); }
+    if (++n > 40) clearInterval(t); // give up after ~8s
+  }, 200);
+})();
+</script>
 <script>
 // (intentionally empty placeholder — keeps script-tag balance with the
 // existing settings-modal block below)

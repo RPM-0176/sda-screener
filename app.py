@@ -1735,9 +1735,20 @@ def api_create_manual_property():
              u['user_id'], u['full_name']))
         db.commit()
         new_id = cur.lastrowid
-    except sqlite3.IntegrityError as e:
+    except sqlite3.IntegrityError:
+        # Race condition: another request slipped past the explicit
+        # duplicate check above and inserted the same (state, address_key)
+        # between our SELECT and our INSERT. Return the same clean 409 the
+        # explicit path returns rather than leaking the SQLite error.
+        winner = db.execute(
+            'SELECT id FROM manual_properties WHERE state=? AND address_key=?',
+            (state, addr_key)
+        ).fetchone()
         db.close()
-        return jsonify({'error': 'Database constraint violation: ' + str(e)}), 400
+        return jsonify({
+            'error': 'A manual property with that address already exists in ' + state.upper(),
+            'existing_id': winner['id'] if winner else None,
+        }), 409
 
     row = db.execute('SELECT * FROM manual_properties WHERE id=?', (new_id,)).fetchone()
     db.close()

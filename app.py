@@ -212,7 +212,15 @@ form.inline{display:inline}
     <tr>
       <td><strong>{{ u.full_name }}</strong></td>
       <td>{{ u.username }}</td>
-      <td><span class="badge {{ 'ba' if u.role=='admin' else 'bt' }}">{{ u.role }}</span></td>
+      <td>
+        <span class="badge {{ 'ba' if u.role=='admin' else 'bt' }}">{{ u.role }}</span>
+        {% if u.id != current_user.user_id %}
+        <form class="inline" method="POST" action="/admin/users/{{ u.id }}/toggle_role" style="display:inline-block;margin-left:6px"
+              onsubmit="return confirm('Change {{ u.full_name }} to {{ 'team member' if u.role=='admin' else 'admin' }}?')">
+          <button type="submit" class="btn" style="padding:3px 9px;font-size:11px;background:#fff;border:1px solid #185FA5;color:#185FA5;font-weight:600">{{ '\u2192 Team' if u.role=='admin' else '\u2192 Admin' }}</button>
+        </form>
+        {% endif %}
+      </td>
       <td><span class="badge {{ 'bact' if u.active else 'bina' }}">{{ 'Active' if u.active else 'Disabled' }}</span></td>
       <td>
         <form class="inline" method="POST" action="/admin/users/{{ u.id }}/password">
@@ -2828,6 +2836,34 @@ def toggle_user(uid):
     db.close()
     if 'json' in (request.content_type or ''): return jsonify({'ok': True})
     return redirect('/admin/users?msg=Updated&msg_type=ok')
+
+@app.route('/admin/users/<int:uid>/toggle_role', methods=['POST'])
+@admin_required
+def toggle_role(uid):
+    # Flip a user's role between 'admin' and 'team'. Two safety guards:
+    #   1. Admins can't demote themselves (would lock them out of admin pages
+    #      immediately on next click).
+    #   2. The last remaining admin can't be demoted at all, preventing the
+    #      system from ending up with zero admins.
+    me = getattr(request, 'current_user', None) or {}
+    if me.get('user_id') == uid:
+        return redirect('/admin/users?msg=You+cannot+change+your+own+role&msg_type=er')
+    db = get_db()
+    user = db.execute('SELECT role,full_name FROM users WHERE id=?', (uid,)).fetchone()
+    if not user:
+        db.close()
+        return redirect('/admin/users?msg=User+not+found&msg_type=er')
+    new_role = 'team' if user['role'] == 'admin' else 'admin'
+    if new_role == 'team':
+        # Guard against demoting the last active admin.
+        admin_count = db.execute("SELECT COUNT(*) AS c FROM users WHERE role='admin' AND active=1").fetchone()['c']
+        if admin_count <= 1:
+            db.close()
+            return redirect('/admin/users?msg=Cannot+demote+the+last+admin&msg_type=er')
+    db.execute('UPDATE users SET role=? WHERE id=?', (new_role, uid))
+    db.commit(); db.close()
+    msg = user['full_name'].replace(' ', '+') + '+is+now+' + new_role
+    return redirect('/admin/users?msg=' + msg + '&msg_type=ok')
 
 @app.route('/admin/api/stats')
 @admin_required

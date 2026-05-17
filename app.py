@@ -434,13 +434,29 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 DB = os.path.join(os.path.dirname(__file__), 'usage.db')
 
+# How often (in seconds) the login_required decorator refreshes a session's
+# last_active timestamp. Previously this fired on every single request, which
+# caused "database is locked" errors under multi-user load on SQLite. 60s of
+# precision is plenty for "is this user currently active" — the admin Team
+# activity view shows times rounded to the minute anyway.
+SESSION_TOUCH_SECONDS = 60
+
 # Google Maps Platform API key — read from environment (set on Railway).
 # Used for: Geocoding, Places (New) Nearby Search, and Maps Static API.
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 
 def get_db():
-    db = sqlite3.connect(DB)
+    # timeout=10 makes Python wait up to 10s for the file lock before raising
+    # OperationalError. busy_timeout sets the same at the SQLite engine level.
+    # WAL mode (persisted to the DB file on first connect) lets readers and a
+    # single writer work concurrently without blocking each other; this is the
+    # main fix for the "database is locked" errors we were seeing under
+    # multi-user load with the default rollback-journal mode.
+    db = sqlite3.connect(DB, timeout=10.0)
     db.row_factory = sqlite3.Row
+    db.execute('PRAGMA busy_timeout=5000')
+    db.execute('PRAGMA journal_mode=WAL')
+    db.execute('PRAGMA synchronous=NORMAL')
     return db
 
 def init_db():
@@ -609,20 +625,47 @@ def login_required(f):
         token = session.get('token')
         if not token:
             return redirect(url_for('login'))
+        # One DB connection for both the read and the (throttled) write.
+        # Previously this used two separate connections per request which
+        # multiplied lock contention under concurrent users.
         db = get_db()
-        sess = db.execute(
-            'SELECT s.*,u.username,u.full_name,u.role,u.active FROM sessions s '
-            'JOIN users u ON s.user_id=u.id WHERE s.session_token=? AND s.logout_at IS NULL', (token,)
-        ).fetchone()
-        db.close()
-        if not sess or not sess['active']:
-            session.clear()
-            return redirect(url_for('login'))
-        db = get_db()
-        db.execute('UPDATE sessions SET last_active=? WHERE session_token=?',
-                   (datetime.datetime.utcnow().isoformat(), token))
-        db.commit()
-        db.close()
+        try:
+            sess = db.execute(
+                'SELECT s.*,u.username,u.full_name,u.role,u.active FROM sessions s '
+                'JOIN users u ON s.user_id=u.id WHERE s.session_token=? AND s.logout_at IS NULL', (token,)
+            ).fetchone()
+            if not sess or not sess['active']:
+                session.clear()
+                return redirect(url_for('login'))
+            # Throttle the last_active write to once per SESSION_TOUCH_SECONDS.
+            # Refreshing the timestamp on every single request was the main
+            # cause of "database is locked" errors — every page load, every
+            # api/log POST, every api/me poll was queueing an UPDATE on the
+            # sessions table. Sub-minute precision on last_active isn't
+            # operationally useful, so we now only write when it's stale.
+            # Wrapped in try/except so a transient lock here never 500s the
+            # actual page the user is trying to view.
+            try:
+                now = datetime.datetime.utcnow()
+                last_active_str = sess['last_active']
+                stale = True
+                if last_active_str:
+                    try:
+                        last_active = datetime.datetime.fromisoformat(last_active_str)
+                        stale = (now - last_active).total_seconds() >= SESSION_TOUCH_SECONDS
+                    except (ValueError, TypeError):
+                        stale = True
+                if stale:
+                    db.execute('UPDATE sessions SET last_active=? WHERE session_token=?',
+                               (now.isoformat(), token))
+                    db.commit()
+            except sqlite3.OperationalError as e:
+                # DB locked / busy / etc — last_active refresh is non-critical,
+                # log it and continue. Without this guard the lock would
+                # propagate as a 500 on every request.
+                app.logger.warning('session last_active refresh skipped: %s', e)
+        finally:
+            db.close()
         request.current_user = dict(sess)
         return f(*args, **kwargs)
     return decorated

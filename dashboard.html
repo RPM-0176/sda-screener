@@ -8617,12 +8617,59 @@ function exportCSV(id,e){
   id=typeof id==='string'?parseInt(id,10):id;
   var pr=props.find(function(p){return p.id==id;});if(!pr)return;
   serverLog('csv_download',{addr:pr.addr,state:pr.state,sa4:pr.sa4,price:pr.price});
+
+  // Recompute models with all per-property overrides (offer price, mix,
+  // extras, cap rate) so the CSV reflects exactly what Jason sees in the
+  // dashboard cards. Matches the PDF and DOCX export behaviour. Before this
+  // change, the CSV used pr.models which is computed at row-build time with
+  // only shared defaults — meaning per-property overrides never flowed into
+  // the CSV download.
   var tgt=getTgt(),lvr=getLvr(),ir=getIr();
-  var rows=[['NDIS SDA Feasibility'],['Address',pr.addr],['SA4',pr.sa4],['Price','$'+pr.price.toLocaleString()],['']];
-  pr.models.forEach(function(m){
+  var sda=getSDA(pr.sa4,pr.state)||pr.sda||null;
+  var livePrice=propPrice[id]||pr.price;
+  var p=pr.p||PARAMS[pr.state]||PARAMS.nsw;
+  var propCatVal=propCat[id]||null;
+  var extrasTotal=getExtrasTotal(id);
+  var capUsed=effectiveCap(id);
+  var capOverridden=isCapOverridden(id);
+  var capCellLabel = capOverridden
+    ? (capUsed*100).toFixed(2)+'% (overridden from '+(SH.cap*100).toFixed(2)+'% default)'
+    : (capUsed*100).toFixed(2)+'%';
+  var models=sda?['2p','3p','dp'].map(function(m){
+    return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal,capUsed);
+  }).filter(Boolean).sort(function(a,b){return b.ret-a.ret;}):[];
+
+  var rows=[
+    ['NDIS SDA Feasibility'],
+    ['Address',pr.addr],
+    ['SA4',pr.sa4],
+    ['Listed price','$'+pr.price.toLocaleString()],
+    ['Offer price (used in calc)','$'+livePrice.toLocaleString()],
+    ['Cap rate (used in calc)',capCellLabel],
+    ['']
+  ];
+  models.forEach(function(m){
     var borrowed=m.total*lvr,interest=borrowed*ir,equity=m.total*(1-lvr),levRet=equity>0?(m.net-interest)/equity:0;
-    rows.push([MN[m.model]],['Gross/yr','$'+Math.round(m.gross).toLocaleString()],['Net/yr','$'+Math.round(m.net).toLocaleString()],['Total cost','$'+Math.round(m.total).toLocaleString()],['Unlevered',(m.ret*100).toFixed(2)+'%'],['Levered',(levRet*100).toFixed(2)+'%'],['POC',(m.poc*100).toFixed(1)+'%'],['IRR',m.irr?(m.irr*100).toFixed(2)+'%':'n/a'],['Max land','$'+m.maxL.toLocaleString()],['Pass',m.ret>=tgt?'YES':'NO'],['']);
+    var profitOnCost = m.endSale - m.total;
+    rows.push(
+      [MN[m.model]],
+      ['Gross/yr','$'+Math.round(m.gross).toLocaleString()],
+      ['Net/yr','$'+Math.round(m.net).toLocaleString()],
+      ['Total cost','$'+Math.round(m.total).toLocaleString()],
+      ['Unlevered',(m.ret*100).toFixed(2)+'%'],
+      ['Levered',(levRet*100).toFixed(2)+'%'],
+      ['Cap rate',(m.cap*100).toFixed(2)+'%'+(capOverridden?' (overridden)':'')],
+      ['End sale value','$'+Math.round(m.endSale).toLocaleString()],
+      ['Profit on cost ($)','$'+Math.round(profitOnCost).toLocaleString()],
+      ['POC (%)',(m.poc*100).toFixed(1)+'%'],
+      ['IRR',m.irr?(m.irr*100).toFixed(2)+'%':'n/a'],
+      ['Max land','$'+m.maxL.toLocaleString()],
+      ['Pass',m.ret>=tgt?'YES':'NO'],
+      ['']
+    );
   });
+  rows.push(['Note: End sale value = Net income / Cap rate. Profit on cost ($) = End sale value - Total project cost.']);
+
   var csv=rows.map(function(r){return r.map(function(c){return'"'+String(c).replace(/"/g,'""')+'"';}).join(',');}).join('\n');
   var a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
   a.download='SDA_'+String(pr.addr).replace(/[^a-z0-9]/gi,'_').substring(0,30)+'.csv';a.click();
@@ -8853,6 +8900,21 @@ function exportPDFCover(id,e){
   doc.line(14,y+1.5,196,y+1.5);
   y+=5;
 
+  // Cap rate context line — shows which cap rate the POC and End sale value
+  // figures below have been calculated at, plus a flag when overridden from
+  // the shared default. Per Jason's spec for downloads.
+  if (models.length) {
+    var capUsed = effectiveCap(id);
+    var capOverridden = isCapOverridden(id);
+    var capLine = capOverridden
+      ? 'Valuation based on cap rate of '+(capUsed*100).toFixed(2)+'% (overridden from '+(SH.cap*100).toFixed(2)+'% default)'
+      : 'Valuation based on cap rate of '+(capUsed*100).toFixed(2)+'%';
+    doc.setFont('helvetica',capOverridden?'bold':'italic');doc.setFontSize(9);
+    doc.setTextColor(capOverridden?RED[0]:GRAY_TEXT[0],capOverridden?RED[1]:GRAY_TEXT[1],capOverridden?RED[2]:GRAY_TEXT[2]);
+    doc.text(capLine,14,y);
+    y+=5;
+  }
+
   if(!models.length){
     doc.setFont('helvetica','italic');doc.setFontSize(10);
     doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
@@ -8915,6 +8977,52 @@ function exportPDFCover(id,e){
       doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
       y+=6;
     });
+  }
+
+  // ===== Valuation Summary section =====
+  // Shows the cap-rate-driven valuation figures per model (End sale value,
+  // Profit on cost \$ and %). The cap rate stated in the line above the
+  // Feasibility table is the basis for these numbers.
+  if (sda && models && models.length) {
+    pbIfNeeded(8 + models.length * 6 + 8);
+    y+=4;
+    doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
+    doc.setFont('helvetica','bold');doc.setFontSize(11);
+    doc.text('Valuation Summary',14,y);
+    doc.setDrawColor(ACCENT[0],ACCENT[1],ACCENT[2]);doc.setLineWidth(0.6);
+    doc.line(14,y+1.5,196,y+1.5);
+    y+=5;
+    var valHeaders = ['Model','Cap rate','End sale value','Total cost','Profit on cost ($)','POC (%)'];
+    var valColX    = [14,      52,         78,              116,         144,                  180];
+    doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]);
+    doc.rect(14,y,182,6,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold');doc.setFontSize(8);
+    valHeaders.forEach(function(h,i){doc.text(h,valColX[i]+1,y+4);});
+    y+=6;
+    doc.setFont('helvetica','normal');doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
+    models.forEach(function(m,idx){
+      if(idx%2===0){doc.setFillColor(247,248,250);doc.rect(14,y,182,6,'F');}
+      var profit = m.endSale - m.total;
+      var profitColor = profit >= 0 ? GREEN : RED;
+      doc.setFont('helvetica','bold');doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
+      doc.text(MN[m.model],valColX[0]+1,y+4);
+      doc.setFont('helvetica','normal');
+      doc.text((m.cap*100).toFixed(2)+'%',valColX[1]+1,y+4);
+      doc.text('$'+Math.round(m.endSale).toLocaleString(),valColX[2]+1,y+4);
+      doc.text('$'+Math.round(m.total).toLocaleString(),valColX[3]+1,y+4);
+      doc.setFont('helvetica','bold');doc.setTextColor(profitColor[0],profitColor[1],profitColor[2]);
+      doc.text('$'+Math.round(profit).toLocaleString(),valColX[4]+1,y+4);
+      doc.text((m.poc*100).toFixed(1)+'%',valColX[5]+1,y+4);
+      doc.setTextColor(GRAY_TEXT[0],GRAY_TEXT[1],GRAY_TEXT[2]);
+      y+=6;
+    });
+    // Calculation explainer footnote
+    y+=2;
+    doc.setFont('helvetica','italic');doc.setFontSize(7);
+    doc.setTextColor(120,120,120);
+    doc.text('End sale value = Net income/yr / Cap rate.   Profit on cost ($) = End sale value - Total project cost.',14,y);
+    y+=4;
   }
 
   // ===== Sensitivity Analysis section =====
@@ -9599,6 +9707,9 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
     var borrowed=m.total*lvr,interest=borrowed*ir,equity=m.total*(1-lvr);
     var levRet=equity>0?(m.net-interest)/equity:0;
     var ok=m.ret>=tgt,pocOk=m.poc>=0.22,irrOk=m.irr&&m.irr>=0.18;
+    var capOv = (typeof isCapOverridden==='function') ? isCapOverridden(pr.id) : false;
+    var capLabel = (m.cap*100).toFixed(2)+'%' + (capOv ? ' (overridden)' : '');
+    var profit = m.endSale - m.total;
     return[
       new D.Paragraph({spacing:{before:200,after:80},children:[new D.TextRun({text:MN[m.model]+' Model',bold:true,color:ACCENT,font:'Arial',size:24})]}),
       new D.Table({width:{size:9360,type:D.WidthType.DXA},columnWidths:[4500,4860],rows:[
@@ -9615,12 +9726,15 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
         r2('Consultant costs',dollar(m.cons)),
       ].concat(extras.map(function(ex){return r2(ex.label,dollar(ex.cost));})).concat([
         r2('Total project cost',dollar(m.total),true),
-        new D.TableRow({tableHeader:true,children:[hc('Returns',4500),hc('Result',4860)]}),
+        new D.TableRow({tableHeader:true,children:[hc('Returns & Valuation',4500),hc('Result',4860)]}),
         r2('Net return (unlevered)',pct(m.ret)+'  '+(ok?'✓ PASS':'✗ BELOW TARGET')),
         r2('Debt @ '+Math.round(lvr*100)+'% LVR',dollar(borrowed)),
         r2('Interest @ '+(ir*100).toFixed(1)+'%/yr','('+dollar(interest)+')'),
         r2('Net return (levered)',pct(levRet)+'  '+(levRet>=tgt?'✓':'—')),
-        r2('POC',pct(m.poc)+'  '+(pocOk?'✓ PASS':'✗')),
+        r2('Cap rate',capLabel),
+        r2('End sale value',dollar(m.endSale),true),
+        r2('Profit on cost ($)',dollar(profit),true),
+        r2('POC (%)',pct(m.poc)+'  '+(pocOk?'✓ PASS':'✗')),
         r2('5-yr IRR',m.irr?pct(m.irr)+'  '+(irrOk?'✓ PASS':'✗'):'n/a'),
         r2('Max land @ 9% target',dollar(m.maxL)),
       ])})
@@ -9679,6 +9793,26 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
   ch.push(new D.Paragraph({children:[new D.PageBreak()]}));
   ch.push(sh((3+sn)+'. Feasibility Analysis'));
   ch.push(new D.Paragraph({spacing:{after:120},children:[new D.TextRun({text:'Assumptions: '+pr.state.toUpperCase()+' — Stamp duty '+Math.round(p.stamp*100)+'%  |  BA '+Math.round(p.ba*100)+'%  |  Contingency '+Math.round(p.cg*100)+'%  |  Interest '+Math.round(getIr()*100)+'%  |  LVR 50%',font:'Arial',size:18,color:'6B7280',italics:true})]}));
+  // Cap rate context line — states the cap rate the valuation figures below
+  // (End sale value, POC) have been calculated at, and flags when it's been
+  // overridden from the shared default. Red + bold when overridden.
+  if (models.length) {
+    var capUsedDx = (typeof effectiveCap==='function') ? effectiveCap(pr.id) : (SH ? SH.cap : 0.07);
+    var capOvDx = (typeof isCapOverridden==='function') ? isCapOverridden(pr.id) : false;
+    var capLineDx = capOvDx
+      ? 'Valuation based on cap rate of '+(capUsedDx*100).toFixed(2)+'% (overridden from '+(SH.cap*100).toFixed(2)+'% default)'
+      : 'Valuation based on cap rate of '+(capUsedDx*100).toFixed(2)+'%';
+    ch.push(new D.Paragraph({
+      spacing:{after:160},
+      children:[new D.TextRun({
+        text: capLineDx,
+        font:'Arial', size:20,
+        color: capOvDx ? RED : '6B7280',
+        bold: capOvDx,
+        italics: !capOvDx
+      })]
+    }));
+  }
   models.forEach(function(m,idx){
     // Each build model on its own page. The first one too, so the heading
     // sits on the prior page and the model table starts fresh.
@@ -9687,6 +9821,40 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
     }
     modelRows(m).forEach(function(el){ch.push(el);});
   });
+
+  // ===== Valuation Summary section =====
+  // Cap-rate-driven valuation figures consolidated across all build models.
+  // Mirrors the PDF cover sheet's Valuation Summary block.
+  if (sda && models.length) {
+    ch.push(new D.Paragraph({children:[new D.PageBreak()]}));
+    ch.push(sh((3+sn)+'a. Valuation Summary'));
+    var valHeader = new D.TableRow({tableHeader:true, children:[
+      hc('Model', 1800),
+      hc('Cap rate', 1400),
+      hc('End sale value', 2000),
+      hc('Total cost', 2000),
+      hc('Profit on cost ($)', 2160)
+    ]});
+    var valRows = [valHeader].concat(models.map(function(m){
+      var profit = m.endSale - m.total;
+      var profitColor = profit >= 0 ? GREEN : RED;
+      return new D.TableRow({children:[
+        tc(MN[m.model], {bold:true, bg:LGRAY, w:1800}),
+        tc((m.cap*100).toFixed(2)+'%', {w:1400, align:D.AlignmentType.RIGHT}),
+        tc(dollar(m.endSale), {bold:true, w:2000, align:D.AlignmentType.RIGHT}),
+        tc(dollar(m.total), {w:2000, align:D.AlignmentType.RIGHT}),
+        tc(dollar(profit), {bold:true, color:profitColor, w:2160, align:D.AlignmentType.RIGHT})
+      ]});
+    }));
+    ch.push(new D.Table({width:{size:9360,type:D.WidthType.DXA}, columnWidths:[1800,1400,2000,2000,2160], rows:valRows}));
+    ch.push(new D.Paragraph({
+      spacing:{before:120, after:160},
+      children:[new D.TextRun({
+        text:'End sale value = Net income/yr ÷ Cap rate.   Profit on cost ($) = End sale value − Total project cost.',
+        font:'Arial', size:16, color:'6B7280', italics:true
+      })]
+    }));
+  }
 
   // ===== Sensitivity Analysis section =====
   if (sda && models.length) {

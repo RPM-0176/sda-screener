@@ -6488,7 +6488,7 @@ var PARAMS={
   nsw:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:1150000,b3p:1150000,bdp:1150000,cg:0.05,c2p:180000,c3p:209470,cdp:400000,exitCost:100000,rg:0.03,hold:5},
   qld:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:710000,b3p:800000,bdp:710000,cg:0.03,c2p:108000,c3p:127675,cdp:215000,exitCost:100000,rg:0.03,hold:5}
 };
-var SH={sdaMgr:0.11,clean:0.0055,fire:3300,ins:3500,rates:2500,maint:5000,rrc:13171,sl:490,dl:860,pocTgt:0.22,irrTgt:0.18,cap:0.07};
+var SH={sdaMgr:0.11,clean:0.0055,fire:3300,ins:3500,rates:2500,maint:5000,rrc:13171,sl:490,dl:800,pocTgt:0.22,irrTgt:0.18,cap:0.07};
 
 // === Settings persistence (localStorage) ============================
 // Saves user-tweaked Settings + slider values across page reloads.
@@ -6532,6 +6532,14 @@ function loadSettings(){
       Object.keys(data.SH).forEach(function(k){
         if (SH[k] !== undefined) SH[k] = data.SH[k];
       });
+      // Migration: the old default for SH.dl was 860sqm, but it didn't match
+      // SITE_RULES.dp.minLand (800sqm), causing the Duplex card to silently
+      // vanish on properties with land between 800 and 860 even though
+      // site-fit said it should pass. If we detect the old default still
+      // sitting in saved settings, snap it back to the new default (800).
+      // Anyone who deliberately set dl to a different value (e.g. 900) won't
+      // be touched by this.
+      if (SH.dl === 860) SH.dl = 800;
     }
     // Sliders are applied later, after the DOM is ready; stash for then
     window._pendingSliderValues = (data && data.sliders) || null;

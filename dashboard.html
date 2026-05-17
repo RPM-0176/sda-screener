@@ -6758,6 +6758,14 @@ function fmtPrice(v){
 var stateProps={vic:[],nsw:[],qld:[]};var rawProps={vic:[],nsw:[],qld:[]};var propCat={};
 var propPrice={};
 var propExtras={};
+// Per-property cap rate override (admin only). Stored as a decimal (e.g. 0.0725
+// for 7.25%). Absent = use the shared default SH.cap. Session-only — matches
+// the pattern used for propPrice / propCat / propExtras above; deliberately
+// not persisted to localStorage so a fresh page load reverts to the shared
+// default. Reset by setPropCap(id, null) or by clearing the input.
+var propCap={};
+function effectiveCap(id){ return (id != null && propCap[id]) ? propCap[id] : SH.cap; }
+function isCapOverridden(id){ return id != null && propCap[id] != null && propCap[id] !== SH.cap; }
 var shortlist=[];
 var props=[],filt=[],sortK='ret',sortD=-1;
 
@@ -6890,6 +6898,28 @@ function setPropPrice(id, val) {
   var price = parseFloat(String(val).replace(/[^0-9.]/g,''));
   if(price >= 50000) { propPrice[id] = price; } else { delete propPrice[id]; }
 }
+
+// Per-property cap rate setter. Admin-gated at the UI level; this function
+// trusts its caller. Input is a percent (e.g. 7.25), stored as decimal
+// (0.0725). Values outside 1%-25% are rejected as nonsensical for SDA
+// valuation purposes. Pass null/empty to clear the override.
+function setPropCap(id, val) {
+  if (val === null || val === '' || val === undefined) {
+    delete propCap[id];
+    applyPropPrice(id); // re-renders the cards with new effective cap
+    return;
+  }
+  var pct = parseFloat(String(val).replace(/[^0-9.]/g,''));
+  if (isNaN(pct) || pct < 1 || pct > 25) return; // ignore nonsense input
+  propCap[id] = pct / 100;
+  applyPropPrice(id);
+}
+function resetPropCap(id) {
+  delete propCap[id];
+  var inp = document.getElementById('propcap-'+id);
+  if (inp) inp.value = (SH.cap*100).toFixed(2);
+  applyPropPrice(id);
+}
 function applyPropPrice(id) {
   var pr = props.find(function(p){return p.id==id;}); if(!pr) return;
   var p=pr.p||PARAMS.nsw,lvr=getLvr(),ir=getIr(),tgt=getTgt();
@@ -6897,7 +6927,7 @@ function applyPropPrice(id) {
   var livePrice=propPrice[id]||pr.price;
   var propCatVal=propCat[id]||null;
   var extrasTotal=getExtrasTotal(id);
-  var models=['2p','3p','dp'].map(function(m){return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal);}).filter(Boolean);
+  var models=['2p','3p','dp'].map(function(m){return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal,effectiveCap(id));}).filter(Boolean);
   models.sort(function(a,b){return b.ret-a.ret;});
   models.forEach(function(m){
     var el=document.getElementById('fc-'+id+'-'+m.model); if(!el) return;
@@ -6923,6 +6953,7 @@ function applyPropPrice(id) {
       +'<div class="dr2"><span class="l">Interest @ '+(ir*100).toFixed(2)+'%</span><span class="v">($'+Math.round(interest).toLocaleString()+')</span></div>'
       +'<div class="dr2 hi"><span class="l">Net return (levered)</span><span class="v" style="color:'+(levRet>=tgt?'#0F6E56':'#BA7517')+'">'+(levRet*100).toFixed(2)+'%</span></div>'
       +'<div class="dr2" style="border-top:1px solid #eee;margin-top:3px;padding-top:4px"><span class="l">POC</span><span class="v" style="color:'+(pocOk?'#0F6E56':'#A32D2D')+'">'+(m.poc*100).toFixed(1)+'% '+(pocOk?'✓':'✗')+'</span></div>'
+      +renderCapRateBlock(m, id)
       +'<div class="dr2"><span class="l">5-yr IRR</span><span class="v" style="color:'+(irrOk?'#0F6E56':'#A32D2D')+'">'+(m.irr?(m.irr*100).toFixed(2)+'%':'n/a')+' '+(m.irr?irrOk?'✓':'✗':'')+'</span></div>'
       +'<div class="dr2"><span class="l">Max land @ '+(tgt*100).toFixed(0)+'% target</span><span class="v" style="color:#185FA5">$'+m.maxL.toLocaleString()+'</span></div>';
   });
@@ -6974,7 +7005,7 @@ function recalcMaxLand(propId, model, targetPctStr) {
   var livePrice = propPrice[propId] || pr.price;
   var catOverride = propCat[propId] || null;
   var extrasTotal = getExtrasTotal(propId);
-  var m = calcModel(livePrice, pr.land, sda, model, p, catOverride, extrasTotal);
+  var m = calcModel(livePrice, pr.land, sda, model, p, catOverride, extrasTotal, effectiveCap(propId));
   if (!m) { outEl.textContent = '\u2014'; return; }
   var maxAtTarget = calcMaxLand(m.net, m.build, m.cons, p, targetPct/100);
   outEl.textContent = '$' + maxAtTarget.toLocaleString();
@@ -7495,17 +7526,27 @@ function xirr(cfs,dates){
   }
   return isFinite(rate)&&rate>-0.99?rate:null;
 }
-function calcIRR(net,total,p){
+function calcIRR(net,total,p,capOverride){
+  // capOverride: optional decimal cap rate (e.g. 0.0725). Falls back to SH.cap
+  // (the shared global default) when not provided. Used by per-property cap
+  // rate overrides — the terminal-year exit value is sensitive to this.
+  var cap = (typeof capOverride === 'number' && capOverride > 0) ? capOverride : SH.cap;
   var t0=new Date(2025,3,1),cfs=[-total],dates=[t0],hold=Math.round(p.hold);
-  for(var y=1;y<=hold;y++){var rent=net*Math.pow(1+p.rg,y-1);var d=new Date(t0);d.setFullYear(d.getFullYear()+y);cfs.push(y<hold?rent:rent+net*Math.pow(1+p.rg,y-1)/SH.cap-p.exitCost);dates.push(d);}
+  for(var y=1;y<=hold;y++){var rent=net*Math.pow(1+p.rg,y-1);var d=new Date(t0);d.setFullYear(d.getFullYear()+y);cfs.push(y<hold?rent:rent+net*Math.pow(1+p.rg,y-1)/cap-p.exitCost);dates.push(d);}
   return xirr(cfs,dates);
 }
 function calcMaxLand(net,build,cons,p,targetRate){
   var tgt=(typeof targetRate==='number'&&targetRate>0)?targetRate:getTgt();
   return Math.max(0,Math.round((net/tgt-build-cons-p.leg-p.pexa-p.val)/(1+p.stamp+p.ba)));
 }
-function calcModel(price,land,sda,model,p,catOverride,extrasTotal){
+function calcModel(price,land,sda,model,p,catOverride,extrasTotal,capOverride){
+  // capOverride: optional decimal cap rate (e.g. 0.0725) — when a property has
+  // a per-property cap rate set via setPropCap(), call sites pass the resolved
+  // value through here. Falls back to SH.cap (the shared global default) when
+  // not provided, preserving the existing behaviour for any caller that
+  // doesn't yet pass the new argument.
   if(!sda)return null;
+  var cap = (typeof capOverride === 'number' && capOverride > 0) ? capOverride : SH.cap;
   var rrc=SH.rrc,sdaRate=0,build=0,cons=0,pts=0,dw=1;
   if(model==='2p'){sdaRate=getCatRate(sda,model,catOverride);if(sdaRate<=0||(land>0&&land<SH.sl))return null;build=p.b2p*(1+p.cg);cons=p.c2p;pts=2;}
   else if(model==='3p'){sdaRate=getCatRate(sda,model,catOverride);if(sdaRate<=0||(land>0&&land<SH.sl))return null;build=p.b3p*(1+p.cg);cons=p.c3p;pts=3;}
@@ -7515,11 +7556,67 @@ function calcModel(price,land,sda,model,p,catOverride,extrasTotal){
   var net=gross-ongoing;
   var landCost=price+price*p.stamp+p.leg+p.pexa+price*p.ba+p.val;
   var total=landCost+build+cons+(extrasTotal||0);
-  var ret=net/total,poc=(net/SH.cap-total)/total;
+  var endSale=net/cap;
+  var ret=net/total,poc=(endSale-total)/total;
   var lvr=getLvr(),ir=getIr(),equity=total*(1-lvr);
   var levRet=equity>0?(net-total*lvr*ir)/equity:0;
-  var irr=calcIRR(net,total,p),maxL=calcMaxLand(net,build,cons,p);
-  return{model:model,gross:gross,ongoing:ongoing,net:net,total:total,landCost:landCost,build:build,cons:cons,ret:ret,levRet:levRet,poc:poc,irr:irr,maxL:maxL,pts:pts,dw:dw,sdaRate:sdaRate};
+  var irr=calcIRR(net,total,p,cap),maxL=calcMaxLand(net,build,cons,p);
+  return{model:model,gross:gross,ongoing:ongoing,net:net,total:total,landCost:landCost,build:build,cons:cons,ret:ret,levRet:levRet,poc:poc,irr:irr,maxL:maxL,pts:pts,dw:dw,sdaRate:sdaRate,cap:cap,endSale:endSale};
+}
+
+// Helper: format the cap-rate-driven valuation block + sensitivity table for
+// insertion into a dwelling card. Returns a string of <div class="dr2">...
+// rows ready to concatenate into the existing template. Used by both
+// renderProp() and the expand-row inline render to keep them in sync.
+//
+// Layout (per spec):
+//   Cap rate           7.00%   (+ small "overridden" badge if custom)
+//   End sale value     $X,XXX,XXX
+//   Profit on cost $   $XXX,XXX (XX.X%)
+//   ---
+//   Sensitivity table: -0.5% / selected / +0.5%, each row showing End sale + POC%.
+//
+// `m` is the calcModel result. `propId` is used to detect override state.
+function renderCapRateBlock(m, propId) {
+  if (!m) return '';
+  var overridden = propId != null && isCapOverridden(propId);
+  var capPct = (m.cap * 100).toFixed(2) + '%';
+  var capLabel = overridden
+    ? capPct + ' <span style="font-size:9px;color:#A32D2D;font-weight:700;background:#fee;padding:1px 4px;border-radius:3px;margin-left:3px">OVERRIDDEN</span>'
+    : capPct;
+  var profit = m.endSale - m.total;
+  var profitColor = profit >= 0 ? '#0F6E56' : '#A32D2D';
+
+  // Sensitivity: -0.5pp / current / +0.5pp, but never let cap go below 1% or
+  // above 25% (clamp). Recompute end sale + POC for each scenario.
+  function row(deltaPp, isSelected) {
+    var c = m.cap + deltaPp/100;
+    if (c < 0.01) c = 0.01;
+    if (c > 0.25) c = 0.25;
+    var endSale = m.net / c;
+    var poc = (endSale - m.total) / m.total;
+    var label = (c*100).toFixed(2) + '%';
+    var style = isSelected
+      ? 'font-weight:700;background:#f0f5fb'
+      : 'color:#666';
+    return '<tr style="'+style+'"><td style="padding:2px 6px">'+label+(isSelected?' &larr;':'')+'</td>'
+      + '<td style="padding:2px 6px;text-align:right">$'+Math.round(endSale).toLocaleString()+'</td>'
+      + '<td style="padding:2px 6px;text-align:right;color:'+(poc>=0?'#0F6E56':'#A32D2D')+'">'+(poc*100).toFixed(1)+'%</td></tr>';
+  }
+  var sensitivity = '<div style="margin-top:6px;padding:6px 8px;background:#fafafa;border:1px solid #eee;border-radius:4px">'
+    + '<div style="font-size:9px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Cap rate sensitivity</div>'
+    + '<table style="width:100%;font-size:11px;border-collapse:collapse">'
+    + '<thead><tr style="color:#888;font-size:9px;text-transform:uppercase"><td style="padding:1px 6px">Cap</td><td style="padding:1px 6px;text-align:right">End sale</td><td style="padding:1px 6px;text-align:right">POC</td></tr></thead>'
+    + '<tbody>'
+    + row(-0.5, false)
+    + row(0, true)
+    + row(+0.5, false)
+    + '</tbody></table></div>';
+
+  return '<div class="dr2" style="border-top:1px solid #eee;margin-top:3px;padding-top:4px"><span class="l">Cap rate</span><span class="v" style="color:#185FA5;font-weight:600">'+capLabel+'</span></div>'
+    + '<div class="dr2"><span class="l">End sale value</span><span class="v" style="color:#185FA5;font-weight:600">$'+Math.round(m.endSale).toLocaleString()+'</span></div>'
+    + '<div class="dr2 hi"><span class="l">Profit on cost ($)</span><span class="v" style="color:'+profitColor+';font-weight:700">$'+Math.round(profit).toLocaleString()+' ('+(m.poc*100).toFixed(1)+'%)</span></div>'
+    + sensitivity;
 }
 
 // Sensitivity helper — recomputes return metrics for a single model under
@@ -7852,7 +7949,10 @@ function buildDetail(pr,tgt){
   var models = [];
   if(sda){
     models = ['2p','3p','dp'].map(function(m){
-      return calcModel(livePrice,pr.land,sda,m,p,propCatVal);
+      // Note: passing undefined for extrasTotal preserves the prior behaviour
+      // here (this code path didn't apply per-property extras); the cap rate
+      // override IS applied so per-property cap changes flow through.
+      return calcModel(livePrice,pr.land,sda,m,p,propCatVal,undefined,effectiveCap(pr.id));
     }).filter(Boolean);
     models.sort(function(a,b){return b.ret-a.ret;});
   }
@@ -7882,6 +7982,7 @@ function buildDetail(pr,tgt){
       +'<div class="dr2"><span class="l">Interest @ '+(ir*100).toFixed(2)+'%</span><span class="v">($'+Math.round(interest).toLocaleString()+')</span></div>'
       +'<div class="dr2 hi"><span class="l">Net return (levered)</span><span class="v" style="color:'+(levRet>=tgt?'#0F6E56':'#BA7517')+'">'+(levRet*100).toFixed(2)+'%</span></div>'
       +'<div class="dr2" style="border-top:1px solid #eee;margin-top:3px;padding-top:4px"><span class="l">POC</span><span class="v" style="color:'+(pocOk?'#0F6E56':'#A32D2D')+'">'+(m.poc*100).toFixed(1)+'% '+(pocOk?'\u2713':'\u2717')+'</span></div>'
+      +renderCapRateBlock(m, pr.id)
       +'<div class="dr2"><span class="l">5-yr IRR</span><span class="v" style="color:'+(irrOk?'#0F6E56':'#A32D2D')+'">'+(m.irr?(m.irr*100).toFixed(2)+'%':'n/a')+' '+(m.irr?irrOk?'\u2713':'\u2717':'')+'</span></div>'
       +'<div class="dr2"><span class="l">Max land @ '+(getTgt()*100).toFixed(0)+'% target</span><span class="v" style="color:#185FA5">$'+m.maxL.toLocaleString()+'</span></div>'
       +'<div style="margin-top:6px;padding:8px;background:#f0f5fb;border-radius:6px">'
@@ -8043,6 +8144,36 @@ function buildDetail(pr,tgt){
     +   '<select onchange="setPropCat('+pr.id+',this.value)" style="width:100%;padding:7px 8px;border:1px solid #ccc;border-radius:6px;font-size:12px;background:#fff;cursor:pointer">'+mixOptsHtml+'</select>'
     +   '<div style="font-size:10px;color:#888;margin-top:3px">Overrides global setting for this property only</div>'
     + '</div>'
+    // ---- Per-property cap rate override (admin only) ----
+    // Admin users (Jason, Tanya) can override the shared cap rate per property
+    // here. Non-admins see the current effective cap as read-only. The override
+    // flows into calcModel via effectiveCap(pr.id) — when set, End sale value
+    // and Profit on Cost recalculate live. Cleared on page reload (session-only,
+    // matching the other This Property overrides).
+    + (function(){
+        var isAdmin = !!(window.CURRENT_USER && window.CURRENT_USER.is_admin);
+        var curCap = effectiveCap(pr.id);
+        var overridden = isCapOverridden(pr.id);
+        var resetBtn = overridden
+          ? '<button onclick="resetPropCap('+pr.id+')" style="margin-left:6px;padding:2px 8px;background:#fff;color:#A32D2D;border:1px solid #A32D2D;border-radius:4px;font-size:10px;font-weight:600;cursor:pointer">Reset to default</button>'
+          : '';
+        var label = '<label style="font-size:10px;color:#666;display:block;margin-bottom:3px;font-weight:600">Cap rate (%) <span style="font-size:9px;color:#A32D2D;font-weight:700;background:#fee;padding:1px 5px;border-radius:3px;margin-left:4px">ADMIN ONLY</span>'+resetBtn+'</label>';
+        if (isAdmin) {
+          return '<div>'
+            + label
+            + '<input type="number" step="0.05" min="1" max="25" id="propcap-'+pr.id+'" value="'+(curCap*100).toFixed(2)+'" '
+            + 'onchange="setPropCap('+pr.id+',this.value)" '
+            + 'style="width:100%;padding:7px 8px;border:1px solid '+(overridden?'#A32D2D':'#ccc')+';border-radius:6px;font-size:12px;background:#fff;font-weight:'+(overridden?'700':'400')+';color:'+(overridden?'#A32D2D':'#333')+'">'
+            + '<div style="font-size:10px;color:#888;margin-top:3px">'+(overridden?'⚠ Overridden — shared default '+(SH.cap*100).toFixed(2)+'%':'Using shared default '+(SH.cap*100).toFixed(2)+'%')+'</div>'
+            + '</div>';
+        } else {
+          return '<div>'
+            + label
+            + '<input type="text" disabled value="'+(curCap*100).toFixed(2)+'%" style="width:100%;padding:7px 8px;border:1px solid #ccc;border-radius:6px;font-size:12px;background:#f3f4f6;color:#9CA3AF;cursor:not-allowed" title="Cap rate can only be changed by admin users (Jason, Tanya).">'
+            + '<div style="font-size:10px;color:#888;margin-top:3px">Cap rate is admin-controlled</div>'
+            + '</div>';
+        }
+      })()
     + '<div style="border-top:1px solid #eee;padding-top:10px">'
     + '<div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">&#128295; Cost adjustments</div>'
     + '<div id="extras-list-'+pr.id+'" style="margin-bottom:8px">'+renderExtrasList(pr.id)+'</div>'
@@ -8500,7 +8631,7 @@ function exportPipelineXLSX(id, e) {
   // Compute the chosen model 3 ways (IL, FA, HPS) so the row carries
   // all three yield/income variants the BA team's tracker expects.
   function calcVariant(catCode) {
-    return calcModel(livePrice, pr.land, sda, chosenModel, p, catCode, extrasTotal);
+    return calcModel(livePrice, pr.land, sda, chosenModel, p, catCode, extrasTotal, effectiveCap(pr.id));
   }
   var mIL  = calcVariant('il');
   var mFA  = calcVariant('fa');
@@ -8597,7 +8728,7 @@ function exportPDFCover(id,e){
   var propCatVal=propCat[id]||null;
   var extrasTotal=getExtrasTotal(id);
   var models=sda?['2p','3p','dp'].map(function(m){
-    return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal);
+    return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal,effectiveCap(id));
   }).filter(Boolean).sort(function(a,b){return b.ret-a.ret;}):[];
 
   var jsPDF=window.jspdf.jsPDF;
@@ -9389,7 +9520,7 @@ function exportDOCX(id,e){
     var propCatVal=propCat[id]||null;
     var p=pr.p||PARAMS[pr.state]||PARAMS.nsw;
     var models=sda?['2p','3p','dp'].map(function(m){
-      return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal);
+      return calcModel(livePrice,pr.land,sda,m,p,propCatVal,extrasTotal,effectiveCap(id));
     }).filter(Boolean).sort(function(a,b){return b.ret-a.ret;}):[]; 
     buildAndDownloadDOCX(pr,models,sda,sa3Obj,extras,p,livePrice);
   }catch(err){alert('Error generating report: '+err.message);}
@@ -10873,7 +11004,7 @@ function renderShortlist(){
     var catOverride = propCat[pr.id] || null;
     var extrasTotal = getExtrasTotal(pr.id);
     var allModels = sda ? ['2p','3p','dp'].map(function(m){
-      return calcModel(livePrice, pr.land, sda, m, p, catOverride, extrasTotal);
+      return calcModel(livePrice, pr.land, sda, m, p, catOverride, extrasTotal, effectiveCap(pr.id));
     }).filter(Boolean) : [];
     var chosen;
     if (modelChoice === 'best') {

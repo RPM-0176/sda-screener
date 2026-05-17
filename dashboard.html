@@ -6484,11 +6484,11 @@ var EXISTING_SDA=[
 ];
 
 var PARAMS={
-  vic:{stamp:0.055,ba:0.04,leg:1000,pexa:495,val:3500,b2p:650000,b3p:770000,bdp:645000,cg:0.03,c2p:219430,c3p:255660,cdp:425460,cap:0.065,exitCost:100000,rg:0.03,hold:5},
-  nsw:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:1150000,b3p:1150000,bdp:1150000,cg:0.05,c2p:180000,c3p:209470,cdp:400000,cap:0.065,exitCost:100000,rg:0.03,hold:5},
-  qld:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:710000,b3p:800000,bdp:710000,cg:0.03,c2p:108000,c3p:127675,cdp:215000,cap:0.065,exitCost:100000,rg:0.03,hold:5}
+  vic:{stamp:0.055,ba:0.04,leg:1000,pexa:495,val:3500,b2p:650000,b3p:770000,bdp:645000,cg:0.03,c2p:219430,c3p:255660,cdp:425460,exitCost:100000,rg:0.03,hold:5},
+  nsw:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:1150000,b3p:1150000,bdp:1150000,cg:0.05,c2p:180000,c3p:209470,cdp:400000,exitCost:100000,rg:0.03,hold:5},
+  qld:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:710000,b3p:800000,bdp:710000,cg:0.03,c2p:108000,c3p:127675,cdp:215000,exitCost:100000,rg:0.03,hold:5}
 };
-var SH={sdaMgr:0.11,clean:0.0055,fire:3300,ins:3500,rates:2500,maint:5000,rrc:13171,sl:490,dl:860,pocTgt:0.22,irrTgt:0.18};
+var SH={sdaMgr:0.11,clean:0.0055,fire:3300,ins:3500,rates:2500,maint:5000,rrc:13171,sl:490,dl:860,pocTgt:0.22,irrTgt:0.18,cap:0.07};
 
 // === Settings persistence (localStorage) ============================
 // Saves user-tweaked Settings + slider values across page reloads.
@@ -7497,7 +7497,7 @@ function xirr(cfs,dates){
 }
 function calcIRR(net,total,p){
   var t0=new Date(2025,3,1),cfs=[-total],dates=[t0],hold=Math.round(p.hold);
-  for(var y=1;y<=hold;y++){var rent=net*Math.pow(1+p.rg,y-1);var d=new Date(t0);d.setFullYear(d.getFullYear()+y);cfs.push(y<hold?rent:rent+net*Math.pow(1+p.rg,y-1)/p.cap-p.exitCost);dates.push(d);}
+  for(var y=1;y<=hold;y++){var rent=net*Math.pow(1+p.rg,y-1);var d=new Date(t0);d.setFullYear(d.getFullYear()+y);cfs.push(y<hold?rent:rent+net*Math.pow(1+p.rg,y-1)/SH.cap-p.exitCost);dates.push(d);}
   return xirr(cfs,dates);
 }
 function calcMaxLand(net,build,cons,p,targetRate){
@@ -7515,7 +7515,7 @@ function calcModel(price,land,sda,model,p,catOverride,extrasTotal){
   var net=gross-ongoing;
   var landCost=price+price*p.stamp+p.leg+p.pexa+price*p.ba+p.val;
   var total=landCost+build+cons+(extrasTotal||0);
-  var ret=net/total,poc=(net/p.cap-total)/total;
+  var ret=net/total,poc=(net/SH.cap-total)/total;
   var lvr=getLvr(),ir=getIr(),equity=total*(1-lvr);
   var levRet=equity>0?(net-total*lvr*ir)/equity:0;
   var irr=calcIRR(net,total,p),maxL=calcMaxLand(net,build,cons,p);
@@ -10722,6 +10722,17 @@ function openSettings(){
   document.getElementById('s-sh-tgt').value=(getTgt()*100).toFixed(1);
   document.getElementById('s-sh-ir').value=(getIr()*100).toFixed(2);
   document.getElementById('s-sh-lvr').value=(getLvr()*100).toFixed(0);
+  document.getElementById('s-sh-cap').value=(SH.cap*100).toFixed(2);
+  // Admin gating: disable admin-only fields for non-admin users so team
+  // members can see the current cap rate but can't change it.
+  var isAdmin = !!(window.CURRENT_USER && window.CURRENT_USER.is_admin);
+  var adminFields = document.querySelectorAll('[data-admin-only="true"] input');
+  adminFields.forEach(function(inp){
+    inp.disabled = !isAdmin;
+    inp.style.backgroundColor = isAdmin ? '' : '#f3f4f6';
+    inp.style.cursor = isAdmin ? '' : 'not-allowed';
+    inp.title = isAdmin ? '' : 'Cap rate can only be changed by admin users (Jason, Tanya).';
+  });
   // Populate site rules
   ['2p','3p','dp'].forEach(function(m){
     var r = SITE_RULES[m];
@@ -12153,6 +12164,7 @@ document.addEventListener('keydown', function(e){
       <div class="spanel" id="spanel-shared">
         <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;color:#002060">Shared inputs (apply to all states)</h3>
         <div class="sgrid">
+          <div class="sfield" data-admin-only="true"><label>Cap rate (%) <span class="admin-tag" style="font-size:9px;color:#A32D2D;font-weight:700;background:#fee;padding:1px 5px;border-radius:3px;margin-left:4px">ADMIN ONLY</span></label><input type="number" step="0.01" id="s-sh-cap" oninput="updateShared('cap',this.value/100)"><div class="hint">Used to calculate end sale value (Net income ÷ Cap rate) and Profit on Cost. Default 7.00%.</div></div>
           <div class="sfield"><label>Target unlevered return (%)</label><input type="number" step="0.1" id="s-sh-tgt" oninput="document.getElementById('gtgt').value=this.value;document.getElementById('gtgt-v').textContent=parseFloat(this.value).toFixed(2)+'%'"></div>
           <div class="sfield"><label>Interest rate (%)</label><input type="number" step="0.01" id="s-sh-ir" oninput="document.getElementById('gir').value=this.value;document.getElementById('gir-v').textContent=parseFloat(this.value).toFixed(2)+'%'"></div>
           <div class="sfield"><label>LVR (%)</label><input type="number" step="1" id="s-sh-lvr" oninput="document.getElementById('glvr').value=this.value;document.getElementById('glvr-v').textContent=parseFloat(this.value).toFixed(0)+'%'"></div>

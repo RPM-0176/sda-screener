@@ -440,7 +440,43 @@ from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
-DB = os.path.join(os.path.dirname(__file__), 'usage.db')
+
+# Database location.
+#
+# Background: Railway (and most modern PaaS — Heroku, Render, Fly.io,
+# Cloud Run) runs containers with an EPHEMERAL filesystem. Anything written
+# to disk inside the container is lost on every redeploy, daily container
+# recycle, or scale-from-zero. Before this fix, usage.db lived next to
+# app.py inside the container, so every restart wiped users, sessions,
+# manual properties, hidden properties, uploaded CSV data, shortlists, the
+# SDA market data, and the SDA supply snapshot.
+#
+# Fix: read the path from DB_PATH so it can be pointed at a mounted Railway
+# Volume (which IS persistent across deploys/restarts). To migrate without
+# data loss:
+#   1. In Railway, attach a Volume to the service (Settings → Volumes).
+#      Pick any mount path, e.g. /data.
+#   2. Set the DB_PATH environment variable on the service to that path
+#      plus a filename, e.g. /data/usage.db.
+#   3. Redeploy. On first run init_db() creates the schema in the new
+#      location. (If you had existing data worth keeping you would copy
+#      usage.db onto the volume BEFORE the redeploy via a one-off shell
+#      session — see RAILWAY_VOLUME_SETUP.md.)
+#
+# Local dev keeps working: with no DB_PATH set, it falls back to the
+# repo-local usage.db exactly as before.
+DB = os.environ.get('DB_PATH') or os.path.join(os.path.dirname(__file__), 'usage.db')
+
+# Make sure the parent directory exists. Railway Volumes are mounted by
+# the platform so the directory will already exist there, but creating it
+# defensively keeps local-dev and other deploy targets working when the
+# user points DB_PATH at a fresh location.
+_db_dir = os.path.dirname(os.path.abspath(DB))
+if _db_dir and not os.path.exists(_db_dir):
+    try:
+        os.makedirs(_db_dir, exist_ok=True)
+    except OSError:
+        pass  # If we can't create it, the sqlite3.connect below will surface a clearer error
 
 # How often (in seconds) the login_required decorator refreshes a session's
 # last_active timestamp. Previously this fired on every single request, which
@@ -1730,6 +1766,55 @@ def api_list_manual_properties():
             continue
         out.append(_manual_row_to_dict(r))
     return jsonify(out)
+
+
+@app.route('/api/manual-properties/_diag', methods=['GET'])
+@login_required
+def api_manual_properties_diag():
+    """Diagnostic endpoint for investigating 'manual properties disappear
+    after logout/login' reports. Returns a summary that lets us tell apart
+    the three possible failure modes:
+
+      1. Properties are missing from the DB entirely  → total_rows is low
+      2. Properties are in the DB but filtered out as hidden  → visible_rows < total_rows
+      3. Properties are in the DB and not hidden, but the client isn't
+         displaying them  → both counts look fine here, so the bug is
+         client-side and the diagnostic ring buffer in dashboard.html will
+         show what fetch() actually returned.
+
+    Returns total_rows, visible_rows, hidden_rows, last_5_created (with
+    minimal fields — id, state, address, created_by, created_at), and the
+    list of currently-hidden (state, address_key) pairs for cross-reference.
+    """
+    db = get_db()
+    total = db.execute('SELECT COUNT(*) FROM manual_properties').fetchone()[0]
+    hidden = db.execute(
+        'SELECT state, address_key FROM hidden_properties'
+    ).fetchall()
+    hidden_set = {(h['state'], h['address_key']) for h in hidden}
+    all_rows = db.execute(
+        'SELECT state, address_key, id, address, created_by_name, created_at '
+        'FROM manual_properties ORDER BY created_at DESC'
+    ).fetchall()
+    db.close()
+    visible = sum(1 for r in all_rows if (r['state'], r['address_key']) not in hidden_set)
+    return jsonify({
+        'total_rows': total,
+        'visible_rows': visible,
+        'hidden_rows': total - visible,
+        'last_5_created': [
+            {
+                'id': r['id'],
+                'state': r['state'],
+                'address': r['address'],
+                'created_by': r['created_by_name'],
+                'created_at': r['created_at'],
+                'is_hidden': (r['state'], r['address_key']) in hidden_set,
+            }
+            for r in all_rows[:5]
+        ],
+        'hidden_pairs_total': len(hidden_set),
+    })
 
 
 @app.route('/api/manual-properties', methods=['POST'])

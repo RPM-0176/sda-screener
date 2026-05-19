@@ -11832,12 +11832,39 @@ function manualRowToScreener(r){
 
 function loadManualProperties(){
   if (window.location.protocol === 'file:') return;
+  // Diagnostic: previously this swallowed ALL errors silently (offline,
+  // unauthed, server 500, JSON parse failure, etc) which made it impossible
+  // to tell why manual properties sometimes appear missing on login. Now
+  // every outcome is recorded to the diagnostic ring buffer, and an unexpected
+  // non-array response from a 200 status is treated as a load failure so
+  // we don't blank manualPropsRaw based on garbage data.
   return fetch('/api/manual-properties', {credentials:'same-origin'})
-    .then(function(r){ return r.ok ? r.json() : []; })
-    .then(function(list){
-      window.manualPropsRaw = list || [];
+    .then(function(r){
+      if (!r.ok) {
+        try { window._sdaDiag && window._sdaDiag.note('manual_load_http_error', {status:r.status}); } catch(_){}
+        // DO NOT replace manualPropsRaw on auth/server errors — keep any
+        // existing cached data so a transient blip doesn't blank the UI.
+        throw new Error('HTTP ' + r.status);
+      }
+      return r.json().then(function(list){
+        if (!Array.isArray(list)) {
+          // 200 but body isn't an array — likely a login redirect HTML page
+          // got auto-followed and r.json() somehow parsed something. Bail
+          // without nuking the cached list.
+          try { window._sdaDiag && window._sdaDiag.note('manual_load_bad_shape', {type: typeof list}); } catch(_){}
+          throw new Error('unexpected response shape');
+        }
+        try { window._sdaDiag && window._sdaDiag.note('manual_load_ok', {count: list.length}); } catch(_){}
+        window.manualPropsRaw = list;
+        mergeManualIntoState();
+      });
+    }).catch(function(err){
+      try { window._sdaDiag && window._sdaDiag.note('manual_load_failed', {err: String(err && err.message || err)}); } catch(_){}
+      // On any failure, render whatever we already have. We do NOT clear
+      // manualPropsRaw — better to show stale-but-correct data than to
+      // visibly drop the user's saved properties.
       mergeManualIntoState();
-    }).catch(function(){ /* offline or unauthed */ });
+    });
 }
 
 function mergeManualIntoState(){

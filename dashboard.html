@@ -361,6 +361,101 @@ tr.dr:hover td{background:#fafaf9}
 </div>
 </div>
 <script>
+// =============================================================================
+// Firefox-stall diagnostics + safe fetch wrapper
+// -----------------------------------------------------------------------------
+// Added because Firefox users reported the screener hanging mid-interaction
+// while Chrome was unaffected. The root causes we fixed elsewhere in this file
+// are: (1) a race in loadGoogleMapsJS that left a promise pending forever, and
+// (2) untimed fetches that on session-restore could fire 10+ parallel requests
+// against a server that occasionally hangs — Firefox queues at 6/host and the
+// page appeared frozen.
+//
+// This wrapper adds a 20s default timeout to every same-origin fetch
+// (overridable per-call via {sdaTimeout: ms}) and records request/response
+// timings to an in-memory ring buffer the user can dump from DevTools
+// (window._sdaDiag.dump()) or send to the server (window._sdaDiag.report())
+// the next time a stall happens.
+//
+// Chrome behaviour: in the no-error path this is invisible — same status,
+// same JSON, same caching. Only failed/slow requests behave differently
+// (they now reject within 20s instead of hanging forever).
+// =============================================================================
+(function(){
+  var RING_MAX = 200;
+  var ring = [];
+  function push(entry){
+    entry.t = new Date().toISOString();
+    ring.push(entry);
+    if (ring.length > RING_MAX) ring.shift();
+  }
+  window._sdaDiag = {
+    note: function(label, extra){ push({kind:'note', label:label, extra:extra||null}); },
+    dump: function(){ return ring.slice(); },
+    clear: function(){ ring.length = 0; },
+    report: function(){
+      // Send the ring buffer to /api/log so the support team can see what
+      // happened during a stall. Best-effort, no callback.
+      try {
+        fetch('/api/log', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          credentials: 'same-origin',
+          keepalive: true,
+          body: JSON.stringify({type:'client_diag', data:{ua: navigator.userAgent, events: ring.slice()}})
+        });
+      } catch(e){}
+      return ring.length + ' events sent.';
+    }
+  };
+
+  // Wrap window.fetch. Original kept around because some libs (jspdf, docx,
+  // xlsx loaded from CDN) may call fetch internally.
+  var origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    init = init || {};
+    var url = (typeof input === 'string') ? input : (input && input.url) || '';
+    var timeoutMs = (typeof init.sdaTimeout === 'number') ? init.sdaTimeout : 20000;
+    // Only wrap same-origin calls. Leave cross-origin (CDN, Maps tiles) alone.
+    var isLocal = !/^https?:\/\//i.test(url) || url.indexOf(window.location.origin) === 0;
+    if (!isLocal || init.signal) {
+      // If caller already passed a signal, respect it; don't double-wrap.
+      return origFetch(input, init);
+    }
+    var ctrl;
+    try { ctrl = new AbortController(); } catch(_){ ctrl = null; }
+    if (ctrl) init.signal = ctrl.signal;
+    var startedAt = Date.now();
+    push({kind:'fetch_start', url:url});
+    var timer = ctrl ? setTimeout(function(){
+      push({kind:'fetch_timeout', url:url, after_ms: Date.now()-startedAt});
+      try { ctrl.abort(); } catch(_){}
+    }, timeoutMs) : null;
+    return origFetch(input, init).then(function(r){
+      if (timer) clearTimeout(timer);
+      push({kind:'fetch_done', url:url, status:r.status, ms: Date.now()-startedAt});
+      return r;
+    }, function(err){
+      if (timer) clearTimeout(timer);
+      push({kind:'fetch_error', url:url, err: String(err && err.message || err), ms: Date.now()-startedAt});
+      throw err;
+    });
+  };
+
+  // Surface uncaught errors and promise rejections — Firefox occasionally
+  // swallows these when a script tag dies mid-load.
+  window.addEventListener('error', function(e){
+    push({kind:'window_error', msg: e.message, src: e.filename, line: e.lineno});
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e && e.reason;
+    push({kind:'unhandled_rejection', msg: (r && r.message) || String(r)});
+  });
+
+  push({kind:'note', label:'diag_ready', extra:{ua: navigator.userAgent}});
+})();
+</script>
+<script>
 var SUBURB_SA4={
 nsw:{
 'ABBOTSBURY':['Sydney - South West','Fairfield'],
@@ -771,7 +866,7 @@ nsw:{
 'ETTREMA - SASSAFRAS - BUDAWANG':['Southern Highlands and Shoalhaven','Shoalhaven'],
 'EUROBODALLA HINTERLAND':['Capital Region','South Coast'],
 'EVANS HEAD':['Richmond - Tweed','Richmond Valley - Coastal'],
-'FAIRFIELD':['Sydney - Parramatta','Merrylands - Guildford'],
+'FAIRFIELD':['Sydney - South West','Fairfield'],
 'FAIRFIELD - EAST':['Sydney - Parramatta','Merrylands - Guildford'],
 'FAIRFIELD - WEST':['Sydney - South West','Fairfield'],
 'FAIRLIGHT':['Sydney - Northern Beaches','Manly'],
@@ -2420,7 +2515,7 @@ qld:{
 'BURLEIGH HEADS':['Gold Coast','Broadbeach - Burleigh'],
 'BURLEIGH WATERS':['Gold Coast','Broadbeach - Burleigh'],
 'BURNETT HEADS':['Wide Bay','Bundaberg'],
-'BURPENGARY':['Moreton Bay - North','Caboolture'],
+'BURPENGARY':['Moreton Bay - North','Narangba - Burpengary'],
 'BURPENGARY - EAST':['Moreton Bay - North','Caboolture'],
 'BURRUM':['Wide Bay','Maryborough'],
 'BURRUM - FRASER':['Wide Bay','Maryborough'],
@@ -2792,7 +2887,7 @@ qld:{
 'MOOROOBOOL':['Cairns','Cairns - South'],
 'MOOROOKA':['Brisbane - South','Nathan'],
 'MORANBAH':['Mackay - Isaac - Whitsunday','Bowen Basin - North'],
-'MORAYFIELD':['Moreton Bay - North','Caboolture'],
+'MORAYFIELD':['Moreton Bay - North','Narangba - Burpengary'],
 'MORAYFIELD - EAST':['Moreton Bay - North','Caboolture'],
 'MORETON ISLAND':['Moreton Bay - North','Redcliffe'],
 'MORNINGSIDE':['Brisbane Inner City','Brisbane Inner - East'],
@@ -6621,10 +6716,19 @@ function loadView() {
     if (typeof view.sortD === 'number') sortD = view.sortD;
     // Re-apply filters with restored values (which will re-render the table)
     if (typeof applyF === 'function') applyF();
-    // Re-open any rows that were expanded last session
+    // Re-open any rows that were expanded last session.
+    // Bug fix (Firefox stall): previously this fired toggleD() for every saved
+    // row synchronously inside a forEach. Each toggleD kicks off two chained
+    // fetches (geocode + sda-nearby). With 10+ saved rows that's 20+ parallel
+    // requests; Firefox queues at 6/host so subsequent requests wait, and the
+    // page appears to hang for 30s+ while the queue drains. Chrome handles the
+    // same backpressure more gracefully (and varies the 6-limit by version).
+    // Stagger the calls at 80ms apart so the queue never gets that deep.
     if (Array.isArray(view.expanded)) {
-      view.expanded.forEach(function(id){
-        try { toggleD(parseInt(id, 10)); } catch(ex) {}
+      view.expanded.forEach(function(id, idx){
+        setTimeout(function(){
+          try { toggleD(parseInt(id, 10)); } catch(ex) {}
+        }, idx * 80);
       });
     }
     // Update sort indicator
@@ -7196,7 +7300,16 @@ function getSuburbFromAddr(addr){
 }
 
 // Look up [SA4, SA3] from suburb name and state using ABS SA2 data
-// Returns array [sa4, sa3] or null
+// Returns array [sa4, sa3] or null.
+//
+// Note: this used to fall back to the base suburb when the exact match
+// failed (e.g. "FRANKSTON NORTH" → "FRANKSTON"). That was removed because
+// directional suburbs frequently sit in a DIFFERENT SA4 to the base — e.g.
+// FRANKSTON NORTH is Mornington Peninsula, but a hypothetical missing
+// entry would have silently returned whatever FRANKSTON resolved to. For
+// SA4 (which drives rent caps and price ceilings) a wrong answer is much
+// worse than no answer, so we now return null on miss and let the caller
+// surface a "not found" state.
 function lookupSuburb(addr, state){
   if(!addr||!state) return null;
   var st = state.toLowerCase();
@@ -7204,13 +7317,6 @@ function lookupSuburb(addr, state){
   var suburb = getSuburbFromAddr(addr);
   if(!suburb) return null;
   if(SUBURB_SA4[st][suburb]) return SUBURB_SA4[st][suburb];
-  // Try stripping directional prefix/suffix
-  var words = suburb.split(' ');
-  var dirs = {'NORTH':1,'SOUTH':1,'EAST':1,'WEST':1,'UPPER':1,'LOWER':1,'HEIGHTS':1};
-  if(words.length > 1){
-    if(dirs[words[0]] && SUBURB_SA4[st][words.slice(1).join(' ')]) return SUBURB_SA4[st][words.slice(1).join(' ')];
-    if(dirs[words[words.length-1]] && SUBURB_SA4[st][words.slice(0,-1).join(' ')]) return SUBURB_SA4[st][words.slice(0,-1).join(' ')];
-  }
   return null;
 }
 
@@ -7699,7 +7805,48 @@ function calcSensitivity(price, land, sda, model, p, catOverride, extrasTotal, o
 }
 function calcProp(prop){
   var st=(prop.state||'nsw').toLowerCase(),p=PARAMS[st]||PARAMS.nsw;
-  var sa4=prop.sa4||'';
+  // SA4 cross-check (added because CSVs were uploaded with wrong SA4 values
+  // for some properties — e.g. 22 Barossa Ave Vermont South came in as
+  // Melbourne - Inner East when the suburb is in Melbourne - Outer East).
+  // The SUBURB_SA4 dictionary is treated as the source of truth: when the
+  // CSV and dictionary disagree, the dictionary wins. The mismatch is logged
+  // to the diagnostic ring buffer (window._sdaDiag) and a flag is stamped on
+  // the property record so we can surface a count later if useful.
+  // Note: exact suburb match only — the directional fallback in lookupSuburb
+  // is deliberately NOT used here, because that fallback can silently return
+  // a neighbouring suburb's SA4 (e.g. "Frankston North" → "Frankston") and
+  // could mask the very class of bug this check is meant to catch.
+  var csvSA4=prop.sa4||'';
+  var sa4=csvSA4;
+  var sa4Corrected=false;
+  var sa4OrigFromCsv=csvSA4;
+  try {
+    if(SUBURB_SA4[st]){
+      var suburbKey=(typeof getSuburbFromAddr==='function')?getSuburbFromAddr(prop.addr||''):'';
+      var dictEntry=suburbKey&&SUBURB_SA4[st][suburbKey];
+      if(dictEntry){
+        var dictSA4=dictEntry[0];
+        // Compare case-insensitively, trimmed — small whitespace/case diffs
+        // are not real mismatches.
+        var a=(csvSA4||'').toLowerCase().trim();
+        var b=(dictSA4||'').toLowerCase().trim();
+        if(b && a!==b){
+          sa4=dictSA4;
+          sa4Corrected=true;
+          try {
+            if(window._sdaDiag) window._sdaDiag.note('sa4_corrected', {
+              addr: prop.addr, state: st, suburb: suburbKey,
+              csv_sa4: csvSA4, dict_sa4: dictSA4
+            });
+          } catch(_){}
+        } else if(!csvSA4 && dictSA4){
+          // CSV missing the column entirely — fill it from the dictionary.
+          sa4=dictSA4;
+          sa4Corrected=true;
+        }
+      }
+    }
+  } catch(_){}
   var csvSA3=typeof prop.sa3==='string'?prop.sa3:(prop.sa3&&prop.sa3.sa3)||'';
   var sa3name=resolveSA3Name(prop.addr,st,csvSA3);
   var sda=getSDA(sa4,st),sa3=getSA3(sa3name,sa4,st);
@@ -7713,7 +7860,8 @@ function calcProp(prop){
     bestRet:models[0]?models[0].ret:0,bestLev:models[0]?models[0].levRet:0,
     bestPOC:models[0]?models[0].poc:0,bestIRR:models[0]?models[0].irr:null,
     bestMaxL:models[0]?models[0].maxL:0,bestModel:models[0]?models[0].model:null,
-    median:median,underMedian:underMedian,hasProx:hasProx,supply:supply});
+    median:median,underMedian:underMedian,hasProx:hasProx,supply:supply,
+    sa4Corrected:sa4Corrected,sa4OrigFromCsv:sa4OrigFromCsv});
 }
 function recalcAll(){
   ['vic','nsw','qld'].forEach(function(st){
@@ -10018,20 +10166,57 @@ var sdaMapAllPins = null;     // cached after first fetch
 var sdaMapLoading = false;
 var sdaMapLoaded = false;
 
+// Bug fix (Firefox stall): the previous implementation reassigned
+// window.__sdaMapsCallback and appended a new <script> on every call. If two
+// callers (e.g. opening the market map and the demand heatmap in quick
+// succession) hit this before Maps finished loading, the first resolver was
+// overwritten and a second <script> tag for the same URL got appended. Chrome
+// de-duplicates that aggressively; Firefox is stricter and one of the promises
+// could remain pending forever, freezing whichever map opened first.
+//
+// Fix: memoise the load. A single promise is created on first call and reused
+// by all subsequent callers. A single global callback fires once and resolves
+// all waiters. A 30s timeout converts a network hang into an error the UI
+// can surface, instead of an indefinite spinner.
+var _gmapsLoadPromise = null;
 function loadGoogleMapsJS(){
-  return new Promise(function(resolve, reject){
+  if (_gmapsLoadPromise) return _gmapsLoadPromise;
+  _gmapsLoadPromise = new Promise(function(resolve, reject){
     if (window.google && window.google.maps) { resolve(); return; }
     if (!GMAPS_KEY || GMAPS_KEY.length < 10) {
       reject(new Error('Maps API key not configured on server'));
       return;
     }
-    window.__sdaMapsCallback = function(){ resolve(); };
+    var settled = false;
+    var timer = setTimeout(function(){
+      if (settled) return;
+      settled = true;
+      try { window._sdaDiag && window._sdaDiag.note('gmaps_timeout'); } catch(_){}
+      reject(new Error('Maps JS load timed out after 30s'));
+    }, 30000);
+    window.__sdaMapsCallback = function(){
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
     var s = document.createElement('script');
     s.src = 'https://maps.googleapis.com/maps/api/js?key=' + GMAPS_KEY + '&callback=__sdaMapsCallback&loading=async';
     s.async = true; s.defer = true;
-    s.onerror = function(){ reject(new Error('Maps JS failed to load')); };
+    s.onerror = function(){
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // Allow retry on a later call (likely a transient network blip).
+      _gmapsLoadPromise = null;
+      reject(new Error('Maps JS failed to load'));
+    };
     document.head.appendChild(s);
   });
+  // If the first attempt rejects, clear the cached promise so a later call
+  // can retry. (Success is sticky — google.maps is on window.)
+  _gmapsLoadPromise.catch(function(){ _gmapsLoadPromise = null; });
+  return _gmapsLoadPromise;
 }
 
 function initSdaMap(){
@@ -10057,7 +10242,7 @@ function initSdaMap(){
       });
       sdaMapInfoWindow = new google.maps.InfoWindow();
       // Fetch pins
-      return fetch('/api/sda-market', {credentials: 'same-origin'}).then(function(r){return r.json();});
+      return fetch('/api/sda-market', {credentials: 'same-origin', sdaTimeout: 45000}).then(function(r){return r.json();});
     })
     .then(function(pins){
       sdaMapAllPins = Array.isArray(pins) ? pins : [];
@@ -10633,7 +10818,7 @@ function fetchMarketMapData(force){
     return Promise.resolve(marketMapData);
   }
   marketMapDataFetching = true;
-  return fetch('/api/sda-market', { credentials: 'same-origin' })
+  return fetch('/api/sda-market', { credentials: 'same-origin', sdaTimeout: 45000 })
     .then(function(r){ return r.json(); })
     .then(function(rows){
       var grouped = { radius: [], ghomes: [], existing: [], permitted: [] };
@@ -11339,15 +11524,10 @@ function runLookup(){
   notFound.style.display='none';
 
   // Suburb → SA4 + SA3
+  // Exact match only — directional fallback was removed because it silently
+  // returned a neighbouring suburb's SA4 (e.g. "FRANKSTON NORTH" → "FRANKSTON")
+  // and those neighbours can sit in a different SA4, giving wrong rent caps.
   var lookup = SUBURB_SA4[state]&&SUBURB_SA4[state][suburb];
-  if(!lookup){
-    var words=suburb.split(' ');
-    var dirs={'NORTH':1,'SOUTH':1,'EAST':1,'WEST':1,'UPPER':1,'LOWER':1,'HEIGHTS':1};
-    if(words.length>1){
-      if(dirs[words[0]]) lookup=SUBURB_SA4[state][words.slice(1).join(' ')];
-      if(!lookup&&dirs[words[words.length-1]]) lookup=SUBURB_SA4[state][words.slice(0,-1).join(' ')];
-    }
-  }
   if(!lookup){
     resultsDiv.style.display='block';
     notFound.style.display='block';

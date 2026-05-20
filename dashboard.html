@@ -6037,114 +6037,116 @@ var MEDIAN={
   'Queensland - Outback':280000
 };
 var SDA_PIPELINE=[
-  // Unfinished (unenrolled) new-build SDA dwellings under construction by SA4 + Design Category
-  // Source: NDIS Quarterly Performance Report Q1 2026, Table P.8
+  // Unfinished (unenrolled) new-build SDA dwellings under construction by SA4,
+  // Build Type, and Design Category — RPM-relevant subset.
+  // Source: NDIS Quarterly Performance Report Q1 2026, Table P.16
   // As at 31 March 2026. Refresh quarterly from https://data.ndis.gov.au/
   //
-  // Field meanings:
-  //   st     = state code (lowercase, matches SDA[].st)
-  //   sa4    = SA4 name (matches SDA[].sa4 — same lookup convention as getSDA)
-  //   il     = Improved Liveability dwellings in pipeline
-  //   hps    = High Physical Support dwellings in pipeline
-  //   rob    = Robust dwellings in pipeline
-  //   fa     = Fully Accessible dwellings in pipeline
-  //   multi  = Multi-Design Category dwellings (count toward multiple categories)
-  //   tot    = Total pipeline dwellings for the SA4
+  // Build types are collapsed into 3 RPM-relevant groups:
+  //   h_*  = House (House 2P + House 3P)
+  //   v_*  = Villa/Duplex/Townhouse (1P + 2P + 3P combined)
+  //   a_*  = Apartment (1-bed 1P + 2-bed 1P + 2-bed 2P + 3-bed 2P combined)
   //
-  // Notes:
-  //   - NDIA caveats this data: providers self-report intended enrolments; not all
-  //     dwellings will be enrolled, and some may shift category. Treat as a directional
-  //     supply signal, not a guarantee. From 30 Mar 2026 NDIA removes pipeline entries
-  //     older than 36 months, which should improve accuracy over time.
-  //   - State rollup rows and the national Total row from P.8 are excluded — SA4-level only.
-  {st:'act',sa4:'Australian Capital Territory',il:1,hps:53,rob:2,fa:0,multi:1,tot:57},
-  {st:'nsw',sa4:'Capital Region',il:0,hps:3,rob:0,fa:2,multi:0,tot:5},
-  {st:'nsw',sa4:'Central Coast',il:1,hps:61,rob:13,fa:0,multi:15,tot:90},
-  {st:'nsw',sa4:'Central West',il:6,hps:3,rob:15,fa:4,multi:0,tot:28},
-  {st:'nsw',sa4:'Coffs Harbour - Grafton',il:10,hps:0,rob:1,fa:9,multi:0,tot:20},
-  {st:'nsw',sa4:'Far West and Orana',il:2,hps:10,rob:7,fa:7,multi:2,tot:28},
-  {st:'nsw',sa4:'Hunter Valley exc Newcastle',il:6,hps:26,rob:43,fa:9,multi:1,tot:85},
-  {st:'nsw',sa4:'Illawarra',il:26,hps:35,rob:4,fa:0,multi:0,tot:65},
-  {st:'nsw',sa4:'Mid North Coast',il:1,hps:15,rob:0,fa:3,multi:0,tot:19},
-  {st:'nsw',sa4:'Murray',il:3,hps:16,rob:5,fa:0,multi:1,tot:25},
-  {st:'nsw',sa4:'New England and North West',il:11,hps:15,rob:4,fa:4,multi:1,tot:35},
-  {st:'nsw',sa4:'Newcastle and Lake Macquarie',il:1,hps:57,rob:5,fa:1,multi:10,tot:74},
-  {st:'nsw',sa4:'Richmond - Tweed',il:3,hps:16,rob:1,fa:2,multi:0,tot:22},
-  {st:'nsw',sa4:'Riverina',il:5,hps:3,rob:13,fa:6,multi:0,tot:27},
-  {st:'nsw',sa4:'Southern Highlands and Shoalhaven',il:3,hps:24,rob:3,fa:1,multi:0,tot:31},
-  {st:'nsw',sa4:'Sydney - Baulkham Hills and Hawkesbury',il:0,hps:15,rob:6,fa:0,multi:3,tot:24},
-  {st:'nsw',sa4:'Sydney - Blacktown',il:11,hps:122,rob:11,fa:0,multi:0,tot:144},
-  {st:'nsw',sa4:'Sydney - City and Inner South',il:1,hps:8,rob:9,fa:0,multi:3,tot:21},
-  {st:'nsw',sa4:'Sydney - Eastern Suburbs',il:0,hps:1,rob:0,fa:0,multi:0,tot:1},
-  {st:'nsw',sa4:'Sydney - Inner South West',il:1,hps:36,rob:3,fa:0,multi:2,tot:42},
-  {st:'nsw',sa4:'Sydney - Inner West',il:14,hps:0,rob:0,fa:0,multi:0,tot:14},
-  {st:'nsw',sa4:'Sydney - North Sydney and Hornsby',il:0,hps:9,rob:0,fa:0,multi:0,tot:9},
-  {st:'nsw',sa4:'Sydney - Northern Beaches',il:0,hps:7,rob:6,fa:1,multi:0,tot:14},
-  {st:'nsw',sa4:'Sydney - Outer South West',il:9,hps:45,rob:11,fa:0,multi:3,tot:68},
-  {st:'nsw',sa4:'Sydney - Outer West and Blue Mountains',il:15,hps:77,rob:9,fa:0,multi:0,tot:101},
-  {st:'nsw',sa4:'Sydney - Parramatta',il:13,hps:108,rob:39,fa:1,multi:7,tot:168},
-  {st:'nsw',sa4:'Sydney - Ryde',il:1,hps:15,rob:6,fa:0,multi:0,tot:22},
-  {st:'nsw',sa4:'Sydney - South West',il:30,hps:67,rob:11,fa:13,multi:0,tot:121},
-  {st:'nsw',sa4:'Sydney - Sutherland',il:0,hps:10,rob:9,fa:0,multi:0,tot:19},
-  {st:'nt',sa4:'Darwin',il:10,hps:66,rob:23,fa:5,multi:0,tot:104},
-  {st:'nt',sa4:'Northern Territory - Outback',il:0,hps:16,rob:0,fa:1,multi:0,tot:17},
-  {st:'qld',sa4:'Brisbane - East',il:8,hps:48,rob:1,fa:3,multi:13,tot:73},
-  {st:'qld',sa4:'Brisbane - North',il:9,hps:47,rob:6,fa:1,multi:5,tot:68},
-  {st:'qld',sa4:'Brisbane - South',il:1,hps:30,rob:0,fa:16,multi:7,tot:54},
-  {st:'qld',sa4:'Brisbane - West',il:1,hps:2,rob:0,fa:0,multi:0,tot:3},
-  {st:'qld',sa4:'Brisbane Inner City',il:0,hps:25,rob:1,fa:0,multi:2,tot:28},
-  {st:'qld',sa4:'Cairns',il:6,hps:37,rob:35,fa:0,multi:3,tot:81},
-  {st:'qld',sa4:'Central Queensland',il:1,hps:44,rob:25,fa:5,multi:5,tot:80},
-  {st:'qld',sa4:'Darling Downs - Maranoa',il:4,hps:3,rob:0,fa:0,multi:0,tot:7},
-  {st:'qld',sa4:'Gold Coast',il:3,hps:58,rob:11,fa:3,multi:18,tot:93},
-  {st:'qld',sa4:'Ipswich',il:6,hps:29,rob:28,fa:3,multi:8,tot:74},
-  {st:'qld',sa4:'Logan - Beaudesert',il:5,hps:27,rob:28,fa:3,multi:5,tot:68},
-  {st:'qld',sa4:'Mackay - Isaac - Whitsunday',il:0,hps:55,rob:7,fa:0,multi:0,tot:62},
-  {st:'qld',sa4:'Moreton Bay - North',il:11,hps:32,rob:22,fa:5,multi:3,tot:73},
-  {st:'qld',sa4:'Moreton Bay - South',il:2,hps:10,rob:0,fa:0,multi:2,tot:14},
-  {st:'qld',sa4:'Queensland - Outback',il:0,hps:0,rob:0,fa:0,multi:0,tot:0},
-  {st:'qld',sa4:'Sunshine Coast',il:3,hps:40,rob:2,fa:2,multi:7,tot:54},
-  {st:'qld',sa4:'Toowoomba',il:5,hps:22,rob:8,fa:1,multi:15,tot:51},
-  {st:'qld',sa4:'Townsville',il:5,hps:15,rob:17,fa:0,multi:0,tot:37},
-  {st:'qld',sa4:'Wide Bay',il:16,hps:30,rob:13,fa:1,multi:7,tot:67},
-  {st:'sa',sa4:'Adelaide - Central and Hills',il:27,hps:40,rob:6,fa:1,multi:19,tot:93},
-  {st:'sa',sa4:'Adelaide - North',il:36,hps:165,rob:49,fa:30,multi:23,tot:303},
-  {st:'sa',sa4:'Adelaide - South',il:22,hps:106,rob:30,fa:6,multi:24,tot:188},
-  {st:'sa',sa4:'Adelaide - West',il:51,hps:27,rob:5,fa:9,multi:20,tot:112},
-  {st:'sa',sa4:'Barossa - Yorke - Mid North',il:0,hps:21,rob:1,fa:0,multi:0,tot:22},
-  {st:'sa',sa4:'South Australia - Outback',il:4,hps:17,rob:7,fa:0,multi:0,tot:28},
-  {st:'sa',sa4:'South Australia - South East',il:4,hps:68,rob:8,fa:1,multi:7,tot:88},
-  {st:'tas',sa4:'Hobart',il:0,hps:88,rob:4,fa:0,multi:0,tot:92},
-  {st:'tas',sa4:'Launceston and North East',il:0,hps:11,rob:7,fa:4,multi:12,tot:34},
-  {st:'tas',sa4:'South East',il:0,hps:8,rob:0,fa:0,multi:1,tot:9},
-  {st:'tas',sa4:'West and North West',il:0,hps:2,rob:0,fa:0,multi:4,tot:6},
-  {st:'vic',sa4:'Ballarat',il:14,hps:34,rob:56,fa:0,multi:0,tot:104},
-  {st:'vic',sa4:'Bendigo',il:16,hps:35,rob:32,fa:0,multi:11,tot:94},
-  {st:'vic',sa4:'Geelong',il:4,hps:106,rob:32,fa:0,multi:3,tot:145},
-  {st:'vic',sa4:'Hume',il:0,hps:8,rob:0,fa:0,multi:3,tot:11},
-  {st:'vic',sa4:'Latrobe - Gippsland',il:2,hps:42,rob:13,fa:1,multi:5,tot:63},
-  {st:'vic',sa4:'Melbourne - Inner',il:6,hps:135,rob:0,fa:0,multi:16,tot:157},
-  {st:'vic',sa4:'Melbourne - Inner East',il:9,hps:51,rob:4,fa:10,multi:0,tot:74},
-  {st:'vic',sa4:'Melbourne - Inner South',il:11,hps:103,rob:0,fa:2,multi:0,tot:116},
-  {st:'vic',sa4:'Melbourne - North East',il:14,hps:93,rob:42,fa:1,multi:17,tot:167},
-  {st:'vic',sa4:'Melbourne - North West',il:4,hps:44,rob:12,fa:0,multi:1,tot:61},
-  {st:'vic',sa4:'Melbourne - Outer East',il:3,hps:69,rob:6,fa:5,multi:2,tot:85},
-  {st:'vic',sa4:'Melbourne - South East',il:32,hps:229,rob:71,fa:3,multi:1,tot:336},
-  {st:'vic',sa4:'Melbourne - West',il:38,hps:285,rob:177,fa:5,multi:4,tot:509},
-  {st:'vic',sa4:'Mornington Peninsula',il:0,hps:63,rob:18,fa:0,multi:2,tot:83},
-  {st:'vic',sa4:'North West',il:8,hps:14,rob:21,fa:0,multi:12,tot:55},
-  {st:'vic',sa4:'Shepparton',il:18,hps:14,rob:3,fa:0,multi:0,tot:35},
-  {st:'vic',sa4:'Warrnambool and South West',il:1,hps:32,rob:11,fa:1,multi:1,tot:46},
-  {st:'wa',sa4:'Bunbury',il:1,hps:20,rob:0,fa:3,multi:0,tot:24},
-  {st:'wa',sa4:'Mandurah',il:5,hps:44,rob:10,fa:0,multi:0,tot:59},
-  {st:'wa',sa4:'Perth - Inner',il:1,hps:48,rob:0,fa:0,multi:2,tot:51},
-  {st:'wa',sa4:'Perth - North East',il:6,hps:49,rob:14,fa:7,multi:13,tot:89},
-  {st:'wa',sa4:'Perth - North West',il:5,hps:71,rob:22,fa:5,multi:0,tot:103},
-  {st:'wa',sa4:'Perth - South East',il:17,hps:121,rob:14,fa:7,multi:1,tot:160},
-  {st:'wa',sa4:'Perth - South West',il:6,hps:104,rob:21,fa:4,multi:3,tot:138},
-  {st:'wa',sa4:'Western Australia - Outback (North)',il:0,hps:0,rob:0,fa:1,multi:0,tot:1},
-  {st:'wa',sa4:'Western Australia - Outback (South)',il:0,hps:0,rob:0,fa:1,multi:0,tot:1},
-  {st:'wa',sa4:'Western Australia - Wheat Belt',il:3,hps:1,rob:0,fa:0,multi:0,tot:4}
+  // Design categories shown: IL, HPS, FA only.
+  // Suppressed: Group homes (4P/5P — RPM doesn't build), Robust (RPM doesn't build),
+  //             Multi-Design Category (always counted toward an enrolment category at
+  //             enrolment time — excluded to avoid double-counting in competing supply).
+  //
+  // tot = sum of the 9 visible cells (h_il + h_hps + h_fa + v_il + v_hps + v_fa + a_il + a_hps + a_fa)
+  //       i.e. RPM-relevant pipeline only. This will be smaller than P.8's "total" column
+  //       because Group homes, Robust, and Multi-Design are excluded.
+  //
+  // NDIA caveat (P.16 footnote, paraphrased): providers self-report intended enrolments;
+  // not all dwellings will be enrolled and some may shift Build Type or Design Category
+  // before enrolment. Directional signal only.
+  {st:'act',sa4:'Australian Capital Territory',h_il:0,h_hps:0,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:52,a_fa:0,tot:52},
+  {st:'nsw',sa4:'Capital Region',h_il:0,h_hps:3,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:2,tot:5},
+  {st:'nsw',sa4:'Central Coast',h_il:0,h_hps:6,h_fa:0,v_il:0,v_hps:10,v_fa:0,a_il:1,a_hps:40,a_fa:0,tot:57},
+  {st:'nsw',sa4:'Central West',h_il:0,h_hps:3,h_fa:0,v_il:6,v_hps:0,v_fa:4,a_il:0,a_hps:0,a_fa:0,tot:13},
+  {st:'nsw',sa4:'Coffs Harbour - Grafton',h_il:0,h_hps:0,h_fa:0,v_il:10,v_hps:0,v_fa:9,a_il:0,a_hps:0,a_fa:0,tot:19},
+  {st:'nsw',sa4:'Far West and Orana',h_il:1,h_hps:1,h_fa:3,v_il:1,v_hps:0,v_fa:2,a_il:0,a_hps:9,a_fa:1,tot:18},
+  {st:'nsw',sa4:'Hunter Valley exc Newcastle',h_il:5,h_hps:6,h_fa:1,v_il:1,v_hps:11,v_fa:8,a_il:0,a_hps:8,a_fa:0,tot:40},
+  {st:'nsw',sa4:'Illawarra',h_il:2,h_hps:7,h_fa:0,v_il:5,v_hps:3,v_fa:0,a_il:19,a_hps:24,a_fa:0,tot:60},
+  {st:'nsw',sa4:'Mid North Coast',h_il:1,h_hps:7,h_fa:3,v_il:0,v_hps:8,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:19},
+  {st:'nsw',sa4:'Murray',h_il:1,h_hps:9,h_fa:0,v_il:2,v_hps:2,v_fa:0,a_il:0,a_hps:4,a_fa:0,tot:18},
+  {st:'nsw',sa4:'New England and North West',h_il:7,h_hps:5,h_fa:0,v_il:4,v_hps:5,v_fa:4,a_il:0,a_hps:4,a_fa:0,tot:29},
+  {st:'nsw',sa4:'Newcastle and Lake Macquarie',h_il:1,h_hps:20,h_fa:0,v_il:0,v_hps:18,v_fa:1,a_il:0,a_hps:17,a_fa:0,tot:57},
+  {st:'nsw',sa4:'Richmond - Tweed',h_il:2,h_hps:5,h_fa:1,v_il:1,v_hps:2,v_fa:0,a_il:0,a_hps:8,a_fa:1,tot:20},
+  {st:'nsw',sa4:'Riverina',h_il:0,h_hps:1,h_fa:0,v_il:5,v_hps:2,v_fa:6,a_il:0,a_hps:0,a_fa:0,tot:14},
+  {st:'nsw',sa4:'Southern Highlands and Shoalhaven',h_il:0,h_hps:14,h_fa:0,v_il:3,v_hps:9,v_fa:1,a_il:0,a_hps:0,a_fa:0,tot:27},
+  {st:'nsw',sa4:'Sydney - Baulkham Hills and Hawkesbury',h_il:0,h_hps:1,h_fa:0,v_il:0,v_hps:1,v_fa:0,a_il:0,a_hps:13,a_fa:0,tot:15},
+  {st:'nsw',sa4:'Sydney - Blacktown',h_il:1,h_hps:14,h_fa:0,v_il:1,v_hps:27,v_fa:0,a_il:9,a_hps:76,a_fa:0,tot:128},
+  {st:'nsw',sa4:'Sydney - City and Inner South',h_il:0,h_hps:5,h_fa:0,v_il:0,v_hps:3,v_fa:0,a_il:1,a_hps:0,a_fa:0,tot:9},
+  {st:'nsw',sa4:'Sydney - Eastern Suburbs',h_il:0,h_hps:1,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:1},
+  {st:'nsw',sa4:'Sydney - Inner South West',h_il:0,h_hps:5,h_fa:0,v_il:0,v_hps:11,v_fa:0,a_il:1,a_hps:18,a_fa:0,tot:35},
+  {st:'nsw',sa4:'Sydney - Inner West',h_il:0,h_hps:0,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:14,a_hps:0,a_fa:0,tot:14},
+  {st:'nsw',sa4:'Sydney - North Sydney and Hornsby',h_il:0,h_hps:4,h_fa:0,v_il:0,v_hps:4,v_fa:0,a_il:0,a_hps:1,a_fa:0,tot:9},
+  {st:'nsw',sa4:'Sydney - Northern Beaches',h_il:0,h_hps:2,h_fa:0,v_il:0,v_hps:4,v_fa:0,a_il:0,a_hps:1,a_fa:1,tot:8},
+  {st:'nsw',sa4:'Sydney - Outer South West',h_il:5,h_hps:16,h_fa:0,v_il:4,v_hps:6,v_fa:0,a_il:0,a_hps:21,a_fa:0,tot:52},
+  {st:'nsw',sa4:'Sydney - Outer West and Blue Mountains',h_il:1,h_hps:9,h_fa:0,v_il:4,v_hps:10,v_fa:0,a_il:9,a_hps:51,a_fa:0,tot:84},
+  {st:'nsw',sa4:'Sydney - Parramatta',h_il:0,h_hps:3,h_fa:0,v_il:3,v_hps:22,v_fa:1,a_il:10,a_hps:79,a_fa:0,tot:118},
+  {st:'nsw',sa4:'Sydney - Ryde',h_il:0,h_hps:0,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:13,a_fa:0,tot:13},
+  {st:'nsw',sa4:'Sydney - South West',h_il:5,h_hps:9,h_fa:1,v_il:21,v_hps:21,v_fa:6,a_il:4,a_hps:26,a_fa:5,tot:98},
+  {st:'nsw',sa4:'Sydney - Sutherland',h_il:0,h_hps:2,h_fa:0,v_il:0,v_hps:5,v_fa:0,a_il:0,a_hps:3,a_fa:0,tot:10},
+  {st:'nt',sa4:'Darwin',h_il:8,h_hps:40,h_fa:0,v_il:1,v_hps:26,v_fa:5,a_il:0,a_hps:0,a_fa:0,tot:80},
+  {st:'nt',sa4:'Northern Territory - Outback',h_il:0,h_hps:9,h_fa:1,v_il:0,v_hps:7,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:17},
+  {st:'qld',sa4:'Brisbane - East',h_il:1,h_hps:18,h_fa:2,v_il:1,v_hps:9,v_fa:0,a_il:6,a_hps:21,a_fa:1,tot:59},
+  {st:'qld',sa4:'Brisbane - North',h_il:0,h_hps:23,h_fa:0,v_il:0,v_hps:14,v_fa:0,a_il:9,a_hps:10,a_fa:1,tot:57},
+  {st:'qld',sa4:'Brisbane - South',h_il:0,h_hps:12,h_fa:0,v_il:0,v_hps:10,v_fa:0,a_il:0,a_hps:8,a_fa:16,tot:46},
+  {st:'qld',sa4:'Brisbane - West',h_il:1,h_hps:0,h_fa:0,v_il:0,v_hps:2,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:3},
+  {st:'qld',sa4:'Brisbane Inner City',h_il:0,h_hps:6,h_fa:0,v_il:0,v_hps:4,v_fa:0,a_il:0,a_hps:15,a_fa:0,tot:25},
+  {st:'qld',sa4:'Cairns',h_il:0,h_hps:12,h_fa:0,v_il:6,v_hps:14,v_fa:0,a_il:0,a_hps:11,a_fa:0,tot:43},
+  {st:'qld',sa4:'Central Queensland',h_il:1,h_hps:19,h_fa:0,v_il:0,v_hps:25,v_fa:4,a_il:0,a_hps:0,a_fa:0,tot:49},
+  {st:'qld',sa4:'Darling Downs - Maranoa',h_il:0,h_hps:3,h_fa:0,v_il:4,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:7},
+  {st:'qld',sa4:'Gold Coast',h_il:1,h_hps:18,h_fa:0,v_il:1,v_hps:12,v_fa:0,a_il:1,a_hps:28,a_fa:3,tot:64},
+  {st:'qld',sa4:'Ipswich',h_il:2,h_hps:10,h_fa:2,v_il:4,v_hps:19,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:37},
+  {st:'qld',sa4:'Logan - Beaudesert',h_il:3,h_hps:10,h_fa:0,v_il:1,v_hps:10,v_fa:3,a_il:0,a_hps:7,a_fa:0,tot:34},
+  {st:'qld',sa4:'Mackay - Isaac - Whitsunday',h_il:0,h_hps:14,h_fa:0,v_il:0,v_hps:18,v_fa:0,a_il:0,a_hps:23,a_fa:0,tot:55},
+  {st:'qld',sa4:'Moreton Bay - North',h_il:11,h_hps:9,h_fa:0,v_il:0,v_hps:23,v_fa:5,a_il:0,a_hps:0,a_fa:0,tot:48},
+  {st:'qld',sa4:'Moreton Bay - South',h_il:0,h_hps:5,h_fa:0,v_il:2,v_hps:5,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:12},
+  {st:'qld',sa4:'Queensland - Outback',h_il:0,h_hps:0,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:0},
+  {st:'qld',sa4:'Sunshine Coast',h_il:2,h_hps:14,h_fa:1,v_il:1,v_hps:14,v_fa:0,a_il:0,a_hps:12,a_fa:1,tot:45},
+  {st:'qld',sa4:'Toowoomba',h_il:5,h_hps:5,h_fa:1,v_il:0,v_hps:11,v_fa:0,a_il:0,a_hps:6,a_fa:0,tot:28},
+  {st:'qld',sa4:'Townsville',h_il:2,h_hps:5,h_fa:0,v_il:3,v_hps:10,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:20},
+  {st:'qld',sa4:'Wide Bay',h_il:13,h_hps:11,h_fa:1,v_il:2,v_hps:18,v_fa:0,a_il:0,a_hps:1,a_fa:0,tot:46},
+  {st:'sa',sa4:'Adelaide - Central and Hills',h_il:4,h_hps:18,h_fa:0,v_il:0,v_hps:2,v_fa:0,a_il:23,a_hps:19,a_fa:1,tot:67},
+  {st:'sa',sa4:'Adelaide - North',h_il:22,h_hps:129,h_fa:26,v_il:11,v_hps:18,v_fa:3,a_il:0,a_hps:16,a_fa:0,tot:225},
+  {st:'sa',sa4:'Adelaide - South',h_il:18,h_hps:62,h_fa:6,v_il:3,v_hps:19,v_fa:0,a_il:0,a_hps:25,a_fa:0,tot:133},
+  {st:'sa',sa4:'Adelaide - West',h_il:4,h_hps:25,h_fa:5,v_il:8,v_hps:2,v_fa:0,a_il:39,a_hps:0,a_fa:4,tot:87},
+  {st:'sa',sa4:'Barossa - Yorke - Mid North',h_il:0,h_hps:18,h_fa:0,v_il:0,v_hps:2,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:20},
+  {st:'sa',sa4:'South Australia - Outback',h_il:4,h_hps:13,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:17},
+  {st:'sa',sa4:'South Australia - South East',h_il:4,h_hps:58,h_fa:1,v_il:0,v_hps:6,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:69},
+  {st:'tas',sa4:'Hobart',h_il:0,h_hps:80,h_fa:0,v_il:0,v_hps:8,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:88},
+  {st:'tas',sa4:'Launceston and North East',h_il:0,h_hps:11,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:4,tot:15},
+  {st:'tas',sa4:'South East',h_il:0,h_hps:8,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:8},
+  {st:'tas',sa4:'West and North West',h_il:0,h_hps:2,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:2},
+  {st:'vic',sa4:'Ballarat',h_il:12,h_hps:24,h_fa:0,v_il:1,v_hps:9,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:46},
+  {st:'vic',sa4:'Bendigo',h_il:10,h_hps:21,h_fa:0,v_il:0,v_hps:14,v_fa:0,a_il:6,a_hps:0,a_fa:0,tot:51},
+  {st:'vic',sa4:'Geelong',h_il:3,h_hps:98,h_fa:0,v_il:1,v_hps:8,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:110},
+  {st:'vic',sa4:'Hume',h_il:0,h_hps:7,h_fa:0,v_il:0,v_hps:1,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:8},
+  {st:'vic',sa4:'Latrobe - Gippsland',h_il:2,h_hps:31,h_fa:1,v_il:0,v_hps:11,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:45},
+  {st:'vic',sa4:'Melbourne - Inner',h_il:0,h_hps:43,h_fa:0,v_il:0,v_hps:15,v_fa:0,a_il:6,a_hps:77,a_fa:0,tot:141},
+  {st:'vic',sa4:'Melbourne - Inner East',h_il:0,h_hps:6,h_fa:0,v_il:0,v_hps:5,v_fa:0,a_il:9,a_hps:39,a_fa:10,tot:69},
+  {st:'vic',sa4:'Melbourne - Inner South',h_il:0,h_hps:34,h_fa:0,v_il:1,v_hps:13,v_fa:2,a_il:10,a_hps:56,a_fa:0,tot:116},
+  {st:'vic',sa4:'Melbourne - North East',h_il:6,h_hps:59,h_fa:0,v_il:8,v_hps:12,v_fa:0,a_il:0,a_hps:20,a_fa:1,tot:106},
+  {st:'vic',sa4:'Melbourne - North West',h_il:1,h_hps:39,h_fa:0,v_il:3,v_hps:4,v_fa:0,a_il:0,a_hps:1,a_fa:0,tot:48},
+  {st:'vic',sa4:'Melbourne - Outer East',h_il:1,h_hps:43,h_fa:5,v_il:2,v_hps:14,v_fa:0,a_il:0,a_hps:11,a_fa:0,tot:76},
+  {st:'vic',sa4:'Melbourne - South East',h_il:16,h_hps:139,h_fa:3,v_il:6,v_hps:31,v_fa:0,a_il:10,a_hps:57,a_fa:0,tot:262},
+  {st:'vic',sa4:'Melbourne - West',h_il:25,h_hps:143,h_fa:2,v_il:6,v_hps:32,v_fa:3,a_il:7,a_hps:106,a_fa:0,tot:324},
+  {st:'vic',sa4:'Mornington Peninsula',h_il:0,h_hps:36,h_fa:0,v_il:0,v_hps:19,v_fa:0,a_il:0,a_hps:8,a_fa:0,tot:63},
+  {st:'vic',sa4:'North West',h_il:8,h_hps:10,h_fa:0,v_il:0,v_hps:2,v_fa:0,a_il:0,a_hps:2,a_fa:0,tot:22},
+  {st:'vic',sa4:'Shepparton',h_il:1,h_hps:14,h_fa:0,v_il:17,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:32},
+  {st:'vic',sa4:'Warrnambool and South West',h_il:1,h_hps:9,h_fa:0,v_il:0,v_hps:15,v_fa:1,a_il:0,a_hps:8,a_fa:0,tot:34},
+  {st:'wa',sa4:'Bunbury',h_il:1,h_hps:19,h_fa:2,v_il:0,v_hps:1,v_fa:1,a_il:0,a_hps:0,a_fa:0,tot:24},
+  {st:'wa',sa4:'Mandurah',h_il:4,h_hps:36,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:8,a_fa:0,tot:48},
+  {st:'wa',sa4:'Perth - Inner',h_il:0,h_hps:2,h_fa:0,v_il:0,v_hps:5,v_fa:0,a_il:1,a_hps:41,a_fa:0,tot:49},
+  {st:'wa',sa4:'Perth - North East',h_il:5,h_hps:26,h_fa:7,v_il:0,v_hps:10,v_fa:0,a_il:0,a_hps:13,a_fa:0,tot:61},
+  {st:'wa',sa4:'Perth - North West',h_il:5,h_hps:33,h_fa:4,v_il:0,v_hps:11,v_fa:0,a_il:0,a_hps:25,a_fa:0,tot:78},
+  {st:'wa',sa4:'Perth - South East',h_il:13,h_hps:71,h_fa:7,v_il:1,v_hps:28,v_fa:0,a_il:0,a_hps:21,a_fa:0,tot:141},
+  {st:'wa',sa4:'Perth - South West',h_il:5,h_hps:51,h_fa:4,v_il:0,v_hps:7,v_fa:0,a_il:0,a_hps:46,a_fa:0,tot:113},
+  {st:'wa',sa4:'Western Australia - Outback (North)',h_il:0,h_hps:0,h_fa:1,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:1},
+  {st:'wa',sa4:'Western Australia - Outback (South)',h_il:0,h_hps:0,h_fa:1,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:1},
+  {st:'wa',sa4:'Western Australia - Wheat Belt',h_il:2,h_hps:1,h_fa:0,v_il:0,v_hps:0,v_fa:0,a_il:0,a_hps:0,a_fa:0,tot:3}
 ];
 window.SDA_PIPELINE_AS_OF = '31 March 2026';
 var SA3D=[
@@ -7760,14 +7762,20 @@ function gh_vacancies_label(s){
   return s.gh_vacancies > 0 ? s.gh_vacancies + ' vacant' : 'no vacancies';
 }
 
-// Pipeline (Table P.8) panel for the expanded property detail row. Shows incoming
-// new-build SDA dwellings under construction in this SA4, broken down by Design
-// Category. Renders independently of the SA2 supply panel because P.8 is SA4-level
-// and exists for every SA4 even when SA2 supply data is missing for that area.
+// Pipeline (Table P.16) panel for the expanded property detail row. Shows incoming
+// new-build SDA dwellings under construction in this SA4, broken down by Build Type
+// (House / Villa-Duplex-Townhouse / Apartment) and Design Category (IL / HPS / FA).
 //
-// NDIA caveat (P.8 footnote, paraphrased): not all dwellings in the pipeline will
-// be enrolled, and some may shift category at enrolment time. Treat as a directional
-// supply signal, not a guarantee. The tooltip on the count exposes this.
+// Excludes Group homes (RPM doesn't build), Robust (RPM doesn't build), and
+// Multi-Design Category (always counted toward an enrolment category at enrolment).
+// The "tot" stored on each record reflects only the visible cells (RPM-relevant only).
+//
+// Renders independently of the SA2 supply panel because P.16 is SA4-level and exists
+// for every SA4 even when SA2 supply data is missing for that area.
+//
+// NDIA caveat (P.16 footnote, paraphrased): providers self-report intended enrolments;
+// not all dwellings will be enrolled and some may shift Build Type or Design Category
+// before enrolment. Directional signal only.
 function pipelinePanelHtml(pr){
   var p = getPipeline(pr.sa4, pr.state);
   if (!p) return '';
@@ -7782,42 +7790,68 @@ function pipelinePanelHtml(pr){
 
   if (total === 0) {
     html += '<div style="font-size:11px;color:#6B7280;background:#f9fafb;padding:8px 10px;border-radius:6px;line-height:1.5">'
-         +  '<b>No SDA dwellings under construction in this SA4.</b> '
-         +  'No SDA provider has registered a pipeline dwelling here as of ' + asOf + '. '
+         +  '<b>No RPM-relevant SDA dwellings under construction in this SA4.</b> '
+         +  'No SDA provider has registered a House/Villa-Duplex-Townhouse/Apartment pipeline dwelling in IL, HPS, or FA here as of ' + asOf + '. '
          +  'A potential signal that incoming supply is low \u2014 verify with NDIA registrations and local builder activity.'
          +  '</div>';
     return html;
   }
 
-  // Headline strip — uses the same amber palette as other "informational supply" badges
-  var tipText = 'NDIA self-reported pipeline. Not all dwellings will enrol, and some may shift Design Category. Directional only.';
+  // Headline strip — amber palette, matches other informational supply panels
+  var tipText = 'NDIA self-reported pipeline. Not all dwellings will enrol, and some may shift Build Type or Design Category. Directional only. Excludes Group homes, Robust, and Multi-Design (not built by RPM or already counted at enrolment).';
   html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;border-radius:6px;background:#FFF7E6;border:1px solid #F5D599" '
        +  'title="' + tipText.replace(/"/g, '&quot;') + '">'
        +    '<span style="font-size:18px">\ud83c\udfd7\ufe0f</span>'
        +    '<div style="flex:1">'
        +      '<div style="font-weight:700;color:#92400e;font-size:12px">Pipeline incoming: ' + total + ' dwelling' + (total === 1 ? '' : 's') + ' under construction</div>'
-       +      '<div style="font-size:11px;color:#92400e;opacity:.85">Self-reported by SDA providers to NDIA \u2014 directional signal, not a guarantee</div>'
+       +      '<div style="font-size:11px;color:#92400e;opacity:.85">House / Villa-Duplex-Townhouse / Apartment in IL, HPS or FA \u2014 directional signal</div>'
        +    '</div>'
        +  '</div>';
 
-  // Category breakdown — same compact "X HPS · Y IL" style as the Existing SDA mix line
-  // Only show categories with non-zero counts. Multi-Design is kept separate (footnote-worthy).
-  var parts = [];
-  if (p.hps)   parts.push(p.hps + ' HPS');
-  if (p.fa)    parts.push(p.fa + ' FA');
-  if (p.il)    parts.push(p.il + ' IL');
-  if (p.rob)   parts.push(p.rob + ' Robust');
-  if (p.multi) parts.push(p.multi + ' Multi-Design');
-
-  html += '<div style="font-size:11px;font-weight:700;color:#374151;margin:8px 0 4px">By Design Category</div>'
-       +  '<div style="font-size:11px;color:#374151;line-height:1.5">' + parts.join(' \u00b7 ') + '</div>';
-
-  if (p.multi) {
-    html += '<div style="font-size:10px;color:#9CA3AF;margin-top:6px;font-style:italic">'
-         +  'Multi-Design dwellings are designed to meet the requirements of more than one Design Category. '
-         +  'They count toward each applicable category when residents are matched at enrolment.'
-         +  '</div>';
+  // Build-type × category matrix. Compact 3x3 grid with row totals.
+  // Zero cells rendered in light grey so the eye skips over them.
+  // Row totals on the right; column totals beneath, so any single read is one glance.
+  function cell(n){
+    if (!n) return '<td style="text-align:right;padding:3px 8px;color:#D1D5DB;font-variant-numeric:tabular-nums">0</td>';
+    return '<td style="text-align:right;padding:3px 8px;color:#374151;font-weight:600;font-variant-numeric:tabular-nums">' + n + '</td>';
   }
+  function totalCell(n){
+    if (!n) return '<td style="text-align:right;padding:3px 8px;color:#9CA3AF;font-weight:600;font-variant-numeric:tabular-nums;border-left:1px solid #e5e7eb">0</td>';
+    return '<td style="text-align:right;padding:3px 8px;color:#0F1E3D;font-weight:700;font-variant-numeric:tabular-nums;border-left:1px solid #e5e7eb">' + n + '</td>';
+  }
+  function rowLabel(s){
+    return '<td style="padding:3px 8px 3px 0;color:#374151;font-size:11px;font-weight:600">' + s + '</td>';
+  }
+
+  var hTot = (p.h_il||0) + (p.h_hps||0) + (p.h_fa||0);
+  var vTot = (p.v_il||0) + (p.v_hps||0) + (p.v_fa||0);
+  var aTot = (p.a_il||0) + (p.a_hps||0) + (p.a_fa||0);
+  var ilTot  = (p.h_il||0)  + (p.v_il||0)  + (p.a_il||0);
+  var hpsTot = (p.h_hps||0) + (p.v_hps||0) + (p.a_hps||0);
+  var faTot  = (p.h_fa||0)  + (p.v_fa||0)  + (p.a_fa||0);
+
+  html += '<div style="font-size:11px;font-weight:700;color:#374151;margin:8px 0 4px">By Build Type \u00d7 Design Category</div>'
+       +  '<table style="width:100%;border-collapse:collapse;font-size:11px">'
+       +  '<thead><tr>'
+       +    '<th style="text-align:left;padding:3px 8px 3px 0;color:#9CA3AF;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">Build</th>'
+       +    '<th style="text-align:right;padding:3px 8px;color:#9CA3AF;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">IL</th>'
+       +    '<th style="text-align:right;padding:3px 8px;color:#9CA3AF;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">HPS</th>'
+       +    '<th style="text-align:right;padding:3px 8px;color:#9CA3AF;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em">FA</th>'
+       +    '<th style="text-align:right;padding:3px 8px;color:#9CA3AF;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em;border-left:1px solid #e5e7eb">Total</th>'
+       +  '</tr></thead>'
+       +  '<tbody>'
+       +  '<tr>' + rowLabel('House')          + cell(p.h_il) + cell(p.h_hps) + cell(p.h_fa) + totalCell(hTot) + '</tr>'
+       +  '<tr>' + rowLabel('Villa/Duplex/Townhouse') + cell(p.v_il) + cell(p.v_hps) + cell(p.v_fa) + totalCell(vTot) + '</tr>'
+       +  '<tr>' + rowLabel('Apartment')      + cell(p.a_il) + cell(p.a_hps) + cell(p.a_fa) + totalCell(aTot) + '</tr>'
+       +  '</tbody>'
+       +  '<tfoot><tr style="border-top:1px solid #e5e7eb">'
+       +    '<td style="padding:3px 8px 3px 0;color:#9CA3AF;font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:600">Total</td>'
+       +    totalCell(ilTot) + totalCell(hpsTot) + totalCell(faTot) + totalCell(total)
+       +  '</tr></tfoot>'
+       +  '</table>'
+       +  '<div style="font-size:10px;color:#9CA3AF;margin-top:6px;font-style:italic">'
+       +    'Excludes Group homes (4P/5P), Robust, and Multi-Design Category to focus on supply directly competing with RPM builds.'
+       +  '</div>';
 
   return html;
 }

@@ -7109,18 +7109,32 @@ function loadRows(rows,st){
   }
   if(!out.length){alert('No properties found.\n\nExpected columns: address, price, land, state, sa4, sa3\n\nUse the vic/nsw/qld_screener_ready.csv files.');document.getElementById(st+'-status').textContent='No data found';return;}
   rawProps[st]=out.slice();stateProps[st]=out.map(calcProp);
-  // Validate SA4 matches
+  // SA4 match check. Two cases, handled differently:
+  //   (a) blank SA4  -> suburb not yet in the SUBURB_SA4 lookup table (mostly
+  //       regional towns). Expected coverage gap, not a data error: surface it
+  //       quietly in the status line + console, not via a blocking alert.
+  //   (b) a non-blank SA4 the pricing table does not recognise -> a genuine
+  //       problem (e.g. an older CSV with stale SA4 names). Still alert.
   var noSDA=stateProps[st].filter(function(p){return !p.sda;});
+  var _regionalMiss=0;
   if(noSDA.length>0){
-    var badSA4s=[...new Set(noSDA.map(function(p){return p.sa4;}))].slice(0,3).join(', ');
-    alert('WARNING: '+noSDA.length+' properties have no SDA pricing match.\nSA4 values not found: '+badSA4s+'\n\nYou may be using an old CSV. Please use the freshly generated *_screener_ready.csv files.');
+    var _blanks=noSDA.filter(function(p){return !p.sa4;});
+    var _badSA4=[...new Set(noSDA.filter(function(p){return p.sa4;}).map(function(p){return p.sa4;}))];
+    if(_blanks.length){
+      _regionalMiss=_blanks.length;
+      var _subs=[...new Set(_blanks.map(function(p){return (typeof getSuburbFromAddr==='function')?getSuburbFromAddr(p.addr||''):'';}).filter(Boolean))];
+      try{ console.log('[SDA] '+st.toUpperCase()+': '+_blanks.length+' properties across '+_subs.length+' suburbs are not in the SA4 lookup table (regional). Suburbs:\n'+_subs.sort().join(', ')); }catch(_){}
+    }
+    if(_badSA4.length){
+      alert('Note: '+_badSA4.length+' '+st.toUpperCase()+' SA4 value(s) are not recognised by the pricing table: '+_badSA4.slice(0,5).join(', ')+(_badSA4.length>5?' \u2026':'')+'.\n\nThis usually means an older CSV \u2014 please regenerate with the latest converter.');
+    }
   }
   var count=stateProps[st].length;
   var colors={vic:'#0F6E56',nsw:'#185FA5',qld:'#BA7517'};
   var bgs={vic:'#e8f5ee',nsw:'#e8f0fb',qld:'#fdf0d8'};
   var b=document.getElementById(st+'-badge');
   b.textContent=count.toLocaleString()+' properties';b.style.color=colors[st];b.style.background=bgs[st];b.className='zone-badge';
-  document.getElementById(st+'-status').textContent='\u2713 '+count.toLocaleString()+' properties loaded';
+  document.getElementById(st+'-status').textContent='\u2713 '+count.toLocaleString()+' loaded'+(_regionalMiss?(' \u00b7 '+_regionalMiss.toLocaleString()+' regional unmatched (no SDA pricing; see console)'):'');
   document.getElementById('clear-'+st).style.display='block';
   rebuildProps();
 }

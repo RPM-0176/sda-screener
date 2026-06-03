@@ -2921,7 +2921,7 @@ def add_user():
 @app.route('/admin/users/<int:uid>/password', methods=['POST'])
 @admin_required
 def change_password(uid):
-    pw = (request.get_json() or {}).get('password') or request.form.get('password','')
+    pw = (request.get_json(silent=True) or {}).get('password') or request.form.get('password','')
     if len(pw) < 6:
         return redirect('/admin/users?msg=Password+too+short&msg_type=er') if 'json' not in (request.content_type or '') else (jsonify({'error':'Too short'}), 400)
     db = get_db()
@@ -2994,4 +2994,3 @@ def admin_users_api():
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
-

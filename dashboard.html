@@ -7061,6 +7061,28 @@ function processXLSX(buf,st){
 }
 
 function loadRows(rows,st){
+  // Slot guard: the screener-ready CSVs carry an authoritative `state` column.
+  // Loading a file into the wrong state box silently relabels every row and
+  // resolves SA4 regions against the wrong state's suburb table (e.g. an NSW
+  // file dropped into VIC matches Portland/Windsor/Box Hill to Melbourne
+  // SA4s). Check the column against the chosen slot before doing anything.
+  var _sgCounts={}, _sgSeen=0;
+  for(var _sg=0;_sg<rows.length;_sg++){
+    var _sv=String((rows[_sg].state||rows[_sg].State||'')).trim().toLowerCase();
+    _sv=({victoria:'vic','new south wales':'nsw',queensland:'qld'})[_sv]||_sv;
+    if(_sv==='vic'||_sv==='nsw'||_sv==='qld'){ _sgCounts[_sv]=(_sgCounts[_sv]||0)+1; _sgSeen++; }
+  }
+  if(_sgSeen){
+    var _sgDom='', _sgN=0;
+    for(var _sgK in _sgCounts){ if(_sgCounts[_sgK]>_sgN){ _sgN=_sgCounts[_sgK]; _sgDom=_sgK; } }
+    if(_sgDom && _sgDom!==st){
+      var _sgOk=confirm('This file looks like '+_sgDom.toUpperCase()+' data ('+_sgN+' of '+_sgSeen+' rows have state="'+_sgDom.toUpperCase()+'"), but you are loading it into the '+st.toUpperCase()+' box. Loading it here will treat every property as '+st.toUpperCase()+' and match SA4 regions against the '+st.toUpperCase()+' table, which is almost certainly wrong. Load into '+st.toUpperCase()+' anyway?');
+      if(!_sgOk){
+        var _sgEl=document.getElementById(st+'-status'); if(_sgEl) _sgEl.textContent='Cancelled \u2014 file looked like '+_sgDom.toUpperCase()+' data';
+        return;
+      }
+    }
+  }
   var out=[];
   for(var i=0;i<rows.length;i++){
     var o=rows[i];

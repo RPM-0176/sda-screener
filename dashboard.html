@@ -102,6 +102,13 @@ tr.dr:hover td{background:#fafaf9}
       <a href="/admin" target="_blank" class="clrbtn2" style="color:#002060;border-color:#002060;text-decoration:none;display:none" id="admin-btn">Admin panel</a>
       <a href="/logout" class="clrbtn2" style="color:#A32D2D;border-color:#A32D2D;text-decoration:none;display:none" id="logout-btn">Sign out</a>
       
+      <span id="prop-search-wrap" style="position:relative;display:inline-flex;align-items:center;gap:4px">
+        <input id="prop-search-input" type="text" placeholder="Find property by address / suburb"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();runPropSearch();}"
+               style="padding:6px 9px;border:1px solid #185FA5;border-radius:6px;font-size:12px;min-width:230px;outline:none">
+        <button class="clrbtn2" onclick="runPropSearch()" style="color:#185FA5;border-color:#185FA5;font-weight:700">Find</button>
+        <div id="prop-search-results" style="display:none;position:absolute;top:100%;left:0;z-index:9500;background:#fff;border:1px solid #ccc;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,0.15);max-height:300px;overflow:auto;min-width:320px;margin-top:4px"></div>
+      </span>
       <button class="clrbtn2" onclick="openLookup()" style="color:#185FA5;border-color:#185FA5;font-weight:700">&#128269; Suburb lookup</button>
       <button class="clrbtn2" onclick="openAddManualModal()" style="color:#0F6E56;border-color:#0F6E56;font-weight:700">&#43; Add property</button>
       <button class="clrbtn2" id="manual-tab-btn" onclick="openManualTab()" style="color:#0F6E56;border-color:#0F6E56;font-weight:700;opacity:0.55">&#127968; Manual properties (0)</button>
@@ -13337,6 +13344,97 @@ document.addEventListener('keydown', function(e){
   window.addEventListener('scroll', onScroll, {passive:true});
   onScroll();
 })();
+</script>
+<!-- Header property search: find a property by address/suburb and jump to its
+     row, even when the current screener filters are hiding it. -->
+<script>
+function _propSearchMatches(q){
+  q = (q||'').trim().toLowerCase();
+  if(!q) return [];
+  if(typeof props === 'undefined' || !Array.isArray(props)) return [];
+  return props.filter(function(pr){
+    if(!pr || !pr.addr) return false;
+    if(pr.addr.toLowerCase().indexOf(q) !== -1) return true;
+    if(pr.suburb && String(pr.suburb).toLowerCase().indexOf(q) !== -1) return true;
+    return false;
+  });
+}
+function _propSearchSafe(s){ return String(s||'').replace(/[<>&]/g,''); }
+function runPropSearch(){
+  var box = document.getElementById('prop-search-results');
+  if(box){ box.style.display='none'; box.innerHTML=''; }
+  var q = document.getElementById('prop-search-input').value;
+  var matches = _propSearchMatches(q);
+  if(!matches.length){
+    if(box){
+      box.innerHTML = '<div style="padding:10px 12px;color:#A32D2D;font-size:12px;line-height:1.4">'
+        + 'No match for "' + _propSearchSafe(q) + '" in the loaded properties.<br>'
+        + 'It may be hidden (Admin &rarr; Hidden properties) or not loaded for that state.</div>';
+      box.style.display='block';
+    }
+    return;
+  }
+  if(matches.length === 1){ jumpToProperty(matches[0]); return; }
+  var html = '';
+  matches.slice(0,40).forEach(function(pr){
+    var st = pr.state ? pr.state.toUpperCase() : '';
+    html += '<div class="prop-search-item" data-id="'+pr.id+'" '
+      + 'style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #eee" '
+      + 'onmouseover="this.style.background=\'#f2f7fc\'" onmouseout="this.style.background=\'#fff\'">'
+      + _propSearchSafe(pr.addr) + ' <span style="color:#888">['+st+']</span></div>';
+  });
+  if(matches.length > 40){
+    html += '<div style="padding:6px 12px;color:#888;font-size:11px">Showing first 40 of '+matches.length+' — refine your search.</div>';
+  }
+  box.innerHTML = html;
+  box.style.display = 'block';
+  Array.prototype.forEach.call(box.querySelectorAll('.prop-search-item'), function(el){
+    el.addEventListener('click', function(){
+      var id = Number(el.getAttribute('data-id'));
+      var pr = props.find(function(p){ return p.id === id; });
+      if(pr) jumpToProperty(pr);
+    });
+  });
+}
+function _resetScreenerFilters(){
+  ['fsa4','fst','fmod','fret','fmed','fprice','fland','fdem','firr','fsupply'].forEach(function(idv){
+    var el = document.getElementById(idv);
+    if(el) el.value = '';
+  });
+  if(typeof applyF === 'function') applyF();
+}
+function jumpToProperty(pr){
+  if(!pr) return;
+  var box = document.getElementById('prop-search-results');
+  if(box) box.style.display='none';
+  var row = document.getElementById('prow-'+pr.id);
+  if(!row){
+    if(!confirm('"'+pr.addr+'" matches, but your current filters are hiding it. Clear the filters to show it?')) return;
+    _resetScreenerFilters();
+    row = document.getElementById('prow-'+pr.id);
+  }
+  if(!row){
+    alert('Found "'+pr.addr+'" but it cannot be shown in the table (it may be excluded by the land-size cap over 1000 m\u00b2).');
+    return;
+  }
+  var dtr = document.getElementById('dtr-'+pr.id);
+  if(!dtr || dtr.style.display !== 'table-row'){
+    if(typeof toggleD === 'function') toggleD(pr.id);
+  }
+  row.scrollIntoView({behavior:'smooth', block:'center'});
+  var oldBg = row.style.backgroundColor;
+  row.style.transition = 'background-color 0.3s';
+  row.style.backgroundColor = '#fff3cd';
+  setTimeout(function(){ row.style.backgroundColor = oldBg || ''; }, 1600);
+}
+// Dismiss the results dropdown when clicking outside the search box
+document.addEventListener('click', function(e){
+  var wrap = document.getElementById('prop-search-wrap');
+  var box = document.getElementById('prop-search-results');
+  if(!wrap || !box) return;
+  if(wrap.contains(e.target)) return;
+  box.style.display = 'none';
+});
 </script>
 
 </body>

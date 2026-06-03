@@ -669,6 +669,40 @@ def init_db():
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_sda_supply_unique
             ON sda_supply(state, sa2);
+
+        -- Partner one-pager: per-property reference code (RAD-####), keyed by
+        -- (state, address_key) like hidden/manual so it survives weekly CSV
+        -- re-uploads. The code is opaque and global; it never encodes partner
+        -- or suburb. 'seq' is the numeric part, used for MAX()+1 allocation.
+        CREATE TABLE IF NOT EXISTS partner_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,
+            address TEXT NOT NULL,
+            address_key TEXT NOT NULL,
+            code TEXT NOT NULL UNIQUE,
+            seq INTEGER NOT NULL UNIQUE,
+            created_by_id INTEGER,
+            created_by_name TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_codes_addr
+            ON partner_codes(state, address_key);
+
+        -- One row per (property, partner) introduction event. Powers the audit
+        -- trail / reverse lookup ("Introduced to Supavest on [date] by [who]").
+        -- The unique index dedupes repeat generations for the same partner.
+        CREATE TABLE IF NOT EXISTS introductions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,
+            address TEXT NOT NULL,
+            address_key TEXT NOT NULL,
+            partner_name TEXT NOT NULL,
+            introduced_by_id INTEGER,
+            introduced_by_name TEXT,
+            introduced_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_introductions_unique
+            ON introductions(state, address_key, partner_name);
     """)
     db.commit()
     existing = db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
@@ -1760,6 +1794,97 @@ def _validate_manual_payload(data, partial=False):
         out['sa3'] = (data.get('sa3') or '').strip()
 
     return out, None
+
+
+@app.route('/api/partner-code', methods=['GET'])
+@admin_required
+def get_partner_code():
+    """Return a property's partner reference code (if any) and its full
+    introduction history. Keyed by (state, address_key). Admin only."""
+    state = (request.args.get('state') or '').strip().lower()
+    address = (request.args.get('address') or '').strip()
+    addr_key = _address_key(address)
+    if state not in ('vic', 'nsw', 'qld') or not addr_key:
+        return jsonify({'error': 'Invalid state or address'}), 400
+    db = get_db()
+    row = db.execute('SELECT code FROM partner_codes WHERE state=? AND address_key=?',
+                     (state, addr_key)).fetchone()
+    intros = db.execute(
+        'SELECT partner_name, introduced_by_name, introduced_at '
+        'FROM introductions WHERE state=? AND address_key=? ORDER BY introduced_at',
+        (state, addr_key)).fetchall()
+    db.close()
+    return jsonify({
+        'code': row['code'] if row else None,
+        'introductions': [dict(r) for r in intros]
+    })
+
+
+@app.route('/api/partner-code', methods=['POST'])
+@admin_required
+def create_partner_code():
+    """Introduce a property to a partner: assign its permanent RAD-#### code on
+    first need (get-or-create), then record the introduction. Admin only. The
+    code sequence is global across all properties and never reused. Repeat
+    generations for the same partner do not add duplicate introductions."""
+    data = request.get_json(silent=True) or {}
+    state = (data.get('state') or '').strip().lower()
+    address = (data.get('address') or '').strip()
+    partner = (data.get('partner') or 'Supavest').strip()
+    addr_key = _address_key(address)
+    if state not in ('vic', 'nsw', 'qld'):
+        return jsonify({'error': 'Invalid state'}), 400
+    if not addr_key:
+        return jsonify({'error': 'Address could not be normalised'}), 400
+    if not partner:
+        return jsonify({'error': 'Missing partner'}), 400
+    u = request.current_user
+    db = get_db()
+    # Get-or-create the property's code.
+    row = db.execute('SELECT code FROM partner_codes WHERE state=? AND address_key=?',
+                     (state, addr_key)).fetchone()
+    if row:
+        code = row['code']
+    else:
+        code = None
+        for _attempt in range(6):
+            mx = db.execute('SELECT MAX(seq) AS m FROM partner_codes').fetchone()
+            nxt = (mx['m'] or 0) + 1
+            candidate = 'RAD-%04d' % nxt
+            try:
+                db.execute(
+                    'INSERT INTO partner_codes '
+                    '(state, address, address_key, code, seq, created_by_id, created_by_name) '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (state, address, addr_key, candidate, nxt, u['user_id'], u['full_name']))
+                code = candidate
+                break
+            except sqlite3.IntegrityError:
+                # A concurrent request grabbed this seq, or this property got a
+                # code in parallel — re-read and either adopt it or retry.
+                existing = db.execute(
+                    'SELECT code FROM partner_codes WHERE state=? AND address_key=?',
+                    (state, addr_key)).fetchone()
+                if existing:
+                    code = existing['code']
+                    break
+                continue
+        if not code:
+            db.close()
+            return jsonify({'error': 'Could not allocate a reference code'}), 500
+    # Record the introduction (one row per property+partner; repeats ignored).
+    db.execute(
+        'INSERT OR IGNORE INTO introductions '
+        '(state, address, address_key, partner_name, introduced_by_id, introduced_by_name) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        (state, address, addr_key, partner, u['user_id'], u['full_name']))
+    db.commit()
+    intros = db.execute(
+        'SELECT partner_name, introduced_by_name, introduced_at '
+        'FROM introductions WHERE state=? AND address_key=? ORDER BY introduced_at',
+        (state, addr_key)).fetchall()
+    db.close()
+    return jsonify({'code': code, 'introductions': [dict(r) for r in intros]})
 
 
 @app.route('/api/manual-properties', methods=['GET'])

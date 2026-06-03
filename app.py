@@ -157,6 +157,19 @@ form.inline{display:inline}
     </table>
   </div>
   <script>
+  function adminToast(text){
+    var t = document.getElementById('admin-toast');
+    if(!t){
+      t = document.createElement('div');
+      t.id = 'admin-toast';
+      t.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:9999;background:#0F6E56;color:#fff;padding:12px 16px;border-radius:8px;font-weight:600;font-size:14px;box-shadow:0 2px 12px rgba(0,0,0,0.2);max-width:380px;line-height:1.35';
+      document.body.appendChild(t);
+    }
+    t.textContent = text;
+    t.style.display = 'block';
+    clearTimeout(window._adminToastTimer);
+    window._adminToastTimer = setTimeout(function(){ t.style.display='none'; }, 5000);
+  }
   function hideAction(id, kind, btn){
     if(kind === 'restore'){
       if(!confirm('Restore this property to the screener?')) return;
@@ -168,6 +181,7 @@ form.inline{display:inline}
           if(res.ok){
             var row = document.getElementById('hide-row-'+id);
             if(row) row.remove();
+            adminToast('Restored to the screener. Reload your dashboard tab to see it (clear any filters if it does not appear).');
           } else {
             alert('Restore failed: '+(res.j && res.j.error || 'unknown'));
           }
@@ -175,7 +189,7 @@ form.inline{display:inline}
     } else if(kind === 'harddelete'){
       var state = (btn && btn.getAttribute('data-state')) || '';
       var address = (btn && btn.getAttribute('data-addr')) || '';
-      if(!confirm('PERMANENTLY delete this property from the '+state.toUpperCase()+' CSV?\n\n'+address+'\n\nThis cannot be undone. The address will be removed from the data; re-uploading the CSV will bring it back.')) return;
+      if(!confirm('PERMANENTLY delete this property from the '+state.toUpperCase()+' CSV: '+address+'. This cannot be undone; re-uploading the CSV will bring it back.')) return;
       fetch('/api/hard-delete-property', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({state: state, address: address})
@@ -184,6 +198,7 @@ form.inline{display:inline}
           if(res.ok){
             var row = document.getElementById('hide-row-'+id);
             if(row) row.remove();
+            adminToast('Permanently removed from the '+state.toUpperCase()+' CSV.');
           } else {
             alert('Hard delete failed: '+(res.j && res.j.error || 'unknown'));
           }

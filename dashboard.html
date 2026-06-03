@@ -13322,6 +13322,22 @@ document.addEventListener('keydown', function(e){
   }
 });
 </script>
+<!-- Back-to-top: floating button, appears after scrolling down, returns to top of the page -->
+<style>
+#back-to-top{position:fixed;right:20px;bottom:20px;z-index:9000;display:none;padding:10px 15px;border:1px solid #185FA5;border-radius:24px;background:#fff;color:#185FA5;font-weight:700;font-size:13px;line-height:1;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.18)}
+#back-to-top:hover{background:#185FA5;color:#fff}
+</style>
+<button id="back-to-top" type="button" title="Back to top" aria-label="Back to top"
+        onclick="window.scrollTo({top:0,behavior:'smooth'})">&#8593; Top</button>
+<script>
+(function(){
+  var btn = document.getElementById('back-to-top');
+  if(!btn) return;
+  function onScroll(){ btn.style.display = (window.pageYOffset > 400) ? 'block' : 'none'; }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+})();
+</script>
 
 </body>
 </html>

@@ -6910,8 +6910,8 @@ loadSettings();
 // User-provided per-property frontage/depth (from LandChecker)
 // Stored persistently in localStorage so they survive page reloads.
 var SITE_RULES = {
-  '2p': {label:'2P House', minFrontage:13, minDepth:30, minLand:450},
-  '3p': {label:'3P House', minFrontage:14, minDepth:30, minLand:600},
+  '2p': {label:'2P House', minFrontage:12, minDepth:31, minLand:372},
+  '3p': {label:'3P House', minFrontage:15.2, minDepth:37.2, minLand:565},
   'dp': {label:'Duplex',   minFrontage:20, minDepth:35, minLand:800}
 };
 var TRUE_DEFAULT_SITE_RULES = JSON.parse(JSON.stringify(SITE_RULES));
@@ -6942,6 +6942,15 @@ function loadSiteRules(){
           if (typeof saved[k][f] === 'number') SITE_RULES[k][f] = saved[k][f];
         });
       }
+    });
+    // Migration: bump any 2P/3P rule still at a previous default forward to the
+    // current footprint-based minimum. Only exact old-default matches move, so
+    // a value the user set themselves is preserved.
+    var _OLD_SR={'2p':{minFrontage:13,minDepth:30,minLand:450},'3p':{minFrontage:14,minDepth:30,minLand:600}};
+    ['2p','3p'].forEach(function(k){
+      ['minFrontage','minDepth','minLand'].forEach(function(f){
+        if (SITE_RULES[k][f] === _OLD_SR[k][f]) SITE_RULES[k][f] = TRUE_DEFAULT_SITE_RULES[k][f];
+      });
     });
   } catch(ex){}
 }
@@ -7944,9 +7953,9 @@ function calcModel(price,land,sda,model,p,catOverride,extrasTotal,capOverride){
   if(!sda)return null;
   var cap = (typeof capOverride === 'number' && capOverride > 0) ? capOverride : SH.cap;
   var rrc=SH.rrc,sdaRate=0,build=0,cons=0,pts=0,dw=1;
-  if(model==='2p'){sdaRate=getCatRate(sda,model,catOverride);if(sdaRate<=0||(land>0&&land<SH.sl))return null;build=p.b2p*(1+p.cg);cons=p.c2p;pts=2;}
-  else if(model==='3p'){sdaRate=getCatRate(sda,model,catOverride);if(sdaRate<=0||(land>0&&land<SH.sl))return null;build=p.b3p*(1+p.cg);cons=p.c3p;pts=3;}
-  else{if(land>0&&land<SH.dl)return null;sdaRate=getCatRate(sda,'dp',catOverride);if(sdaRate<=0)return null;build=p.bdp*2*(1+p.cg);cons=p.cdp;pts=4;dw=2;}
+  if(model==='2p'){sdaRate=getCatRate(sda,model,catOverride);if(sdaRate<=0||(land>0&&land<SITE_RULES['2p'].minLand))return null;build=p.b2p*(1+p.cg);cons=p.c2p;pts=2;}
+  else if(model==='3p'){sdaRate=getCatRate(sda,model,catOverride);if(sdaRate<=0||(land>0&&land<SITE_RULES['3p'].minLand))return null;build=p.b3p*(1+p.cg);cons=p.c3p;pts=3;}
+  else{if(land>0&&land<SITE_RULES['dp'].minLand)return null;sdaRate=getCatRate(sda,'dp',catOverride);if(sdaRate<=0)return null;build=p.bdp*2*(1+p.cg);cons=p.cdp;pts=4;dw=2;}
   var gross=(sdaRate+rrc)*pts;
   var ongoing=gross*SH.sdaMgr+gross*SH.clean+SH.fire*dw+SH.ins*dw+SH.rates*dw+SH.maint*dw;
   var net=gross-ongoing;
@@ -8029,14 +8038,14 @@ function calcSensitivity(price, land, sda, model, p, catOverride, extrasTotal, o
   var rrc=SH.rrc, sdaRate=0, build=0, cons=0, pts=0, dw=1;
   if (model==='2p') {
     sdaRate=getCatRate(sda,model,catOverride);
-    if (sdaRate<=0||(land>0&&land<SH.sl)) return null;
+    if (sdaRate<=0||(land>0&&land<SITE_RULES['2p'].minLand)) return null;
     build=p.b2p*(1+p.cg); cons=p.c2p; pts=2;
   } else if (model==='3p') {
     sdaRate=getCatRate(sda,model,catOverride);
-    if (sdaRate<=0||(land>0&&land<SH.sl)) return null;
+    if (sdaRate<=0||(land>0&&land<SITE_RULES['3p'].minLand)) return null;
     build=p.b3p*(1+p.cg); cons=p.c3p; pts=3;
   } else {
-    if (land>0&&land<SH.dl) return null;
+    if (land>0&&land<SITE_RULES['dp'].minLand) return null;
     sdaRate=getCatRate(sda,'dp',catOverride);
     if (sdaRate<=0) return null;
     build=p.bdp*2*(1+p.cg); cons=p.cdp; pts=4; dw=2;
@@ -11499,8 +11508,6 @@ function openSettings(){
   document.getElementById('s-sh-rates').value=SH.rates;
   document.getElementById('s-sh-maint').value=SH.maint;
   document.getElementById('s-sh-rrc').value=SH.rrc;
-  document.getElementById('s-sh-sl').value=SH.sl;
-  document.getElementById('s-sh-dl').value=SH.dl;
   document.getElementById('s-sh-tgt').value=(getTgt()*100).toFixed(1);
   document.getElementById('s-sh-ir').value=(getIr()*100).toFixed(2);
   document.getElementById('s-sh-lvr').value=(getLvr()*100).toFixed(0);
@@ -12979,8 +12986,6 @@ document.addEventListener('keydown', function(e){
           <div class="sfield"><label>Council rates / dwelling/yr ($)</label><input type="number" id="s-sh-rates" oninput="updateShared('rates',this.value)"></div>
           <div class="sfield"><label>Maintenance / dwelling/yr ($)</label><input type="number" id="s-sh-maint" oninput="updateShared('maint',this.value)"></div>
           <div class="sfield"><label>RRC / participant/yr ($)</label><input type="number" id="s-sh-rrc" oninput="updateShared('rrc',this.value)"></div>
-          <div class="sfield"><label>SDA Sinking limit ($)</label><input type="number" id="s-sh-sl" oninput="updateShared('sl',this.value)"></div>
-          <div class="sfield"><label>Depreciation limit ($)</label><input type="number" id="s-sh-dl" oninput="updateShared('dl',this.value)"></div>
         </div>
       </div>
       <!-- SITE RULES -->

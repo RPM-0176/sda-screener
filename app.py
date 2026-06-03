@@ -752,16 +752,19 @@ def log_event(event_type, event_data=None):
     db.close()
 
 def get_dashboard_html():
-    # Try database first, then file
+    # Serve the repo file FIRST so that committing dashboard.html to GitHub
+    # actually updates the live dashboard on redeploy (this is the real deploy
+    # path). Fall back to a copy stored in the DB config (legacy path, no longer
+    # has an upload UI), then to a placeholder.
+    p = os.path.join(os.path.dirname(__file__), 'dashboard.html')
+    if os.path.exists(p):
+        with open(p) as f:
+            return f.read()
     db = get_db()
     row = db.execute("SELECT value FROM config WHERE key='dashboard_html'").fetchone()
     db.close()
     if row and row['value']:
         return row['value']
-    p = os.path.join(os.path.dirname(__file__), 'dashboard.html')
-    if os.path.exists(p):
-        with open(p) as f:
-            return f.read()
     return '<h1>Dashboard not loaded. Upload via admin panel.</h1>'
 
 
@@ -2991,3 +2994,4 @@ def admin_users_api():
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
+

@@ -147,7 +147,7 @@ form.inline{display:inline}
           <td style="max-width:340px;white-space:normal">{{ h.reason }}</td>
           <td style="text-align:right;white-space:nowrap">
             <button type="button" class="btn grn" onclick="hideAction({{ h.id }}, 'restore')">Restore</button>
-            <button type="button" class="btn red" onclick="hideAction({{ h.id }}, 'harddelete', '{{ h.state }}', {{ h.address|tojson }})">Hard delete</button>
+            <button type="button" class="btn red" data-state="{{ h.state|e }}" data-addr="{{ h.address|e }}" onclick="hideAction({{ h.id }}, 'harddelete', this)">Hard delete</button>
           </td>
         </tr>
       {% else %}
@@ -157,7 +157,7 @@ form.inline{display:inline}
     </table>
   </div>
   <script>
-  function hideAction(id, kind, state, address){
+  function hideAction(id, kind, btn){
     if(kind === 'restore'){
       if(!confirm('Restore this property to the screener?')) return;
       fetch('/api/unhide-property', {
@@ -173,6 +173,8 @@ form.inline{display:inline}
           }
         }).catch(function(e){ alert('Restore error: '+e); });
     } else if(kind === 'harddelete'){
+      var state = (btn && btn.getAttribute('data-state')) || '';
+      var address = (btn && btn.getAttribute('data-addr')) || '';
       if(!confirm('PERMANENTLY delete this property from the '+state.toUpperCase()+' CSV?\n\n'+address+'\n\nThis cannot be undone. The address will be removed from the data; re-uploading the CSV will bring it back.')) return;
       fetch('/api/hard-delete-property', {
         method:'POST', headers:{'Content-Type':'application/json'},

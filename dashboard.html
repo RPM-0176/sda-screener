@@ -8643,6 +8643,7 @@ function buildDetail(pr,tgt){
     + '<button onclick="exportPipelineXLSX('+pr.id+',event)" style="padding:10px;background:#EA580C;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">&#10142; Send to BA pipeline</button>'
     + '<button onclick="exportCSV('+pr.id+',event)" style="padding:8px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">Download CSV</button>'
     + '<button onclick="exportPDFCover('+pr.id+',event)" style="padding:8px;background:#A32D2D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128196; Download PDF Cover Sheet</button>'
+    + ((window.CURRENT_USER && window.CURRENT_USER.is_admin) ? '<button onclick="generatePartnerOnePager('+pr.id+',event)" style="padding:8px;background:#002060;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">&#128196; Generate Partner One-Pager</button>' : '')
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'    + '<button id="docx-btn-'+pr.id+'" onclick="exportDOCX('+pr.id+',event)" style="padding:8px;background:#185FA5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;width:100%">&#128196; Download Word Report</button>'    + '</div>'
     + '</div>';
 
@@ -13476,6 +13477,164 @@ document.addEventListener('click', function(e){
   if(wrap.contains(e.target)) return;
   box.style.display = 'none';
 });
+</script>
+
+<!-- Partner one-pager (Change 2 + 3): redacted, partner-facing PDF.
+     STRUCTURAL REDACTION: buildPartnerData() copies ONLY permitted fields into
+     a flat object; exportPartnerOnePager() renders from that object alone and
+     never receives the property record, so it has no code path to the street
+     address, land size, price, build/consultant cost, or margin. -->
+<script>
+var PARTNER_DEMAND_SOURCE = 'NDIS Quarterly Performance Report, Q1 2026 (data as at 31 March 2026)';
+var PARTNER_DISCLAIMER = 'This document is provided for information purposes only. It does not constitute financial, taxation or legal advice. Prospective investors should obtain independent advice from their own licensed advisers before making any investment decision.';
+
+function _partnerSuburb(addr){
+  var parts = String(addr||'').split(',');
+  if (parts.length < 2) return '';
+  return parts[parts.length-1].trim().replace(/\s+(VIC|NSW|QLD|SA|WA|TAS|NT|ACT)\b\s*\d*\s*$/i,'').trim();
+}
+
+function buildPartnerData(pr, code){
+  var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
+  if (!sda) return null;
+  var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
+  var catUsed = (propCat[pr.id] || 'il');
+  var livePrice = propPrice[pr.id] || pr.price;
+  var extrasTotal = getExtrasTotal(pr.id);
+  var capOv = effectiveCap(pr.id);
+  var models = ['2p','3p','dp'].map(function(mm){
+    return calcModel(livePrice, pr.land, sda, mm, p, catUsed, extrasTotal, capOv);
+  }).filter(Boolean).sort(function(a,b){ return b.ret - a.ret; });
+  if (!models.length) return null;
+  var m = models[0];
+  var sa3Name = resolveSA3Name(pr.addr, pr.state, typeof pr.sa3 === 'string' ? pr.sa3 : '');
+  var sa3Obj = getSA3(sa3Name, pr.sa4, pr.state);
+  var total = sa3Obj ? (sa3Obj.total || 0) : null;
+  var cap13 = sa3Obj ? (sa3Obj.cap13 || 0) : null;
+  var catLabel = ({il:'Improved Liveability', fa:'Fully Accessible', hps:'High Physical Support'})[catUsed] || 'Improved Liveability';
+  var designLabel = m.model === 'dp' ? 'SDA duplex (two 2-participant dwellings)'
+                  : m.model === '3p' ? '3-participant SDA house'
+                  : '2-participant SDA house';
+  return {
+    code: code || '', suburb: _partnerSuburb(pr.addr),
+    sa3: sa3Obj ? sa3Obj.sa3 : (sa3Name || ''),
+    design: designLabel, places: m.pts, buildType: catLabel,
+    demandTotal: total, demandCap: cap13,
+    demandGap: (total != null && cap13 != null) ? (total - cap13) : null,
+    netYield: m.ret, irr: m.irr, holdYears: Math.round(p.hold),
+    exitCap: m.cap, rentalGrowth: p.rg,
+    source: PARTNER_DEMAND_SOURCE, genDate: new Date()
+  };
+}
+
+function exportPartnerOnePager(d){
+  if (!window.jspdf || !window.jspdf.jsPDF){ alert('PDF library not loaded yet. Please try again in a moment.'); return; }
+  var jsPDF = window.jspdf.jsPDF;
+  var doc = new jsPDF({orientation:'p', unit:'mm', format:'a4'});
+  var BRAND=[0,32,96], ACCENT=[24,95,165], GRAY=[60,60,60], GREEN=[15,110,86], LIGHT=[235,238,243];
+  var pct = function(x){ return (x == null || isNaN(x)) ? 'n/a' : (x*100).toFixed(1)+'%'; };
+  var y = 44;
+  function sectionTitle(t){
+    doc.setFillColor(LIGHT[0],LIGHT[1],LIGHT[2]); doc.rect(14,y-4,182,7,'F');
+    doc.setTextColor(ACCENT[0],ACCENT[1],ACCENT[2]); doc.setFont('helvetica','bold'); doc.setFontSize(9.5);
+    doc.text(t.toUpperCase(), 16, y+0.8); y += 9;
+    doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+  }
+  function line(label, val){
+    doc.setFont('helvetica','normal'); doc.text(label, 16, y);
+    doc.setFont('helvetica','bold'); doc.text(String(val), 120, y); y += 6.5;
+  }
+  doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]); doc.rect(0,0,210,34,'F');
+  doc.setFillColor(255,255,255); doc.roundedRect(12,7,52,20,2,2,'F');
+  try{ doc.addImage('data:image/jpeg;base64,'+LOGO_JPG_B64,'JPEG',14,9,48,16); }catch(err){}
+  doc.setTextColor(255,255,255);
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text('Investment Opportunity', 200, 16, {align:'right'});
+  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Ref: '+d.code, 200, 24, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.text('Specialist Disability Accommodation', 200, 30, {align:'right'});
+  doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  var headline = d.design + ', ' + (d.suburb || 'this locality') + (d.sa3 ? ', within the '+d.sa3+' region' : '');
+  var hLines = doc.splitTextToSize(headline, 182);
+  doc.text(hLines, 14, y); y += hLines.length*6 + 4;
+  sectionTitle('The opportunity');
+  line('Design model', d.design);
+  line('SDA places', String(d.places));
+  line('Design category', d.buildType);
+  y += 3;
+  sectionTitle('Demand evidence - ' + (d.sa3 || 'SA3 region'));
+  if (d.demandTotal != null) line('Participants with identified SDA need', d.demandTotal.toLocaleString());
+  if (d.demandCap != null)   line('Enrolled 1-3 bedroom dwelling capacity', d.demandCap.toLocaleString()+' places');
+  if (d.demandGap != null){
+    var gapTxt = d.demandGap > 0 ? (d.demandGap.toLocaleString()+' places undersupply')
+               : (d.demandGap === 0 ? 'Balanced' : (Math.abs(d.demandGap).toLocaleString()+' places oversupply'));
+    var gc = d.demandGap > 0 ? GREEN : GRAY;
+    doc.setFont('helvetica','bold'); doc.setTextColor(gc[0],gc[1],gc[2]);
+    doc.text('Demand gap', 16, y); doc.text(gapTxt, 120, y); y += 6.5;
+    doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+  }
+  doc.setFont('helvetica','italic'); doc.setFontSize(8);
+  var srcLines = doc.splitTextToSize('Source: '+d.source, 182);
+  doc.text(srcLines, 16, y); y += srcLines.length*4 + 4;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+  sectionTitle('Projected return');
+  line('Net yield', pct(d.netYield));
+  line('Projected IRR (' + d.holdYears + '-year hold)', pct(d.irr));
+  y += 1;
+  doc.setFont('helvetica','italic'); doc.setFontSize(8);
+  var assumptions = 'Assumptions: ' + d.holdYears + '-year hold; exit capitalisation rate ' + pct(d.exitCap)
+    + '; annual rental growth ' + pct(d.rentalGrowth)
+    + '; returns are modelled on a completed, tenanted dwelling and are subject to construction and settlement timing. Figures are estimates only.';
+  var aLines = doc.splitTextToSize(assumptions, 182);
+  doc.text(aLines, 16, y); y += aLines.length*4 + 5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+  sectionTitle('Why this site');
+  var why;
+  if (d.demandGap != null && d.demandGap > 0){
+    why = 'The ' + (d.sa3 || 'local') + ' region records '
+        + (d.demandTotal != null ? d.demandTotal.toLocaleString() : '')
+        + ' participants with identified SDA needs against '
+        + (d.demandCap != null ? d.demandCap.toLocaleString() : '')
+        + ' enrolled 1-3 bedroom dwellings - a shortfall of ' + d.demandGap.toLocaleString() + ' places. ';
+  } else {
+    why = 'This site sits within the ' + (d.sa3 || 'local') + ' SDA market. ';
+  }
+  why += 'A ' + d.design.toLowerCase() + ' in ' + (d.suburb || 'this locality')
+       + ' is positioned to meet that need, close to established services and transport. The configuration suits eligible NDIS participants seeking quality, purpose-built accommodation in a well-located area.';
+  var wLines = doc.splitTextToSize(why, 182);
+  doc.text(wLines, 16, y); y += wLines.length*5 + 4;
+  var fy = 270;
+  doc.setDrawColor(200,200,200); doc.line(14, fy, 196, fy);
+  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
+  doc.text('Ref: '+d.code, 14, fy+5);
+  doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+  doc.text('Generated ' + d.genDate.toLocaleDateString(), 196, fy+5, {align:'right'});
+  doc.setFontSize(7);
+  var disc = doc.splitTextToSize(PARTNER_DISCLAIMER, 182);
+  doc.text(disc, 14, fy+10);
+  doc.save('Partner_One-Pager_' + (d.code || 'RAD') + '.pdf');
+}
+
+function generatePartnerOnePager(id, e){
+  if (e){ e.preventDefault(); e.stopPropagation(); }
+  id = (typeof id === 'string') ? parseInt(id, 10) : id;
+  var pr = props.find(function(p){ return p.id == id; });
+  if (!pr){ alert('Property not found.'); return; }
+  if (!buildPartnerData(pr, '')){
+    alert('No viable SDA model for this property (check land size and SA4 pricing) - nothing to put on a one-pager.');
+    return;
+  }
+  fetch('/api/partner-code', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({state: pr.state, address: pr.addr, partner: 'Supavest'})
+  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      if (!res.ok){ alert('Could not generate one-pager: ' + ((res.j && res.j.error) || 'permission denied')); return; }
+      var data = buildPartnerData(pr, res.j.code);
+      if (!data){ alert('No viable SDA model for this property.'); return; }
+      exportPartnerOnePager(data);
+    })
+    .catch(function(err){ alert('Could not generate one-pager: ' + err); });
+}
 </script>
 
 </body>

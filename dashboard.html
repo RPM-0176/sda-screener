@@ -8641,7 +8641,8 @@ function buildDetail(pr,tgt){
     + '<div style="font-size:10px;color:#888">Positive = extra cost &nbsp;|&nbsp; Negative = saving/credit</div>'
     + '</div>'
     + '<button onclick="exportPipelineXLSX('+pr.id+',event)" style="padding:10px;background:#EA580C;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">&#10142; Send to BA pipeline</button>'
-    + '<button onclick="exportCSV('+pr.id+',event)" style="padding:8px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">Download CSV</button>'
+    + '<button onclick="exportCSV('+pr.id+',event)" style="padding:8px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">Download CSV</button>
+    + '<button onclick="exportFullFeaso('+pr.id+',event)" style="padding:8px;background:#0E7490;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128202; Download Full Feaso (Excel)</button>''
     + '<button onclick="exportPDFCover('+pr.id+',event)" style="padding:8px;background:#A32D2D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128196; Download PDF Cover Sheet</button>'
     + ((window.CURRENT_USER && window.CURRENT_USER.is_admin) ? ('<div id="partner-info-'+pr.id+'" style="font-size:11px;color:#555;margin-top:6px;line-height:1.5"></div><button onclick="generatePartnerOnePager('+pr.id+',event)" style="padding:8px;background:#002060;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">&#128196; Generate Partner One-Pager</button>') : '')
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'    + '<button id="docx-btn-'+pr.id+'" onclick="exportDOCX('+pr.id+',event)" style="padding:8px;background:#185FA5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;width:100%">&#128196; Download Word Report</button>'    + '</div>'
@@ -13681,6 +13682,129 @@ function generatePartnerOnePager(id, e){
       try{ loadPartnerInfo(id); }catch(_){}
     })
     .catch(function(err){ alert('Could not generate one-pager: ' + err); });
+}
+</script>
+
+<!-- Full itemised feaso (Excel) — read-only export of the property's live
+     model for funders. Same data source as the CSV/PDF; mirrors the master
+     feaso layout. Consultants shown as a single total (the screener holds one
+     consultant figure per build type). Touches nothing in the screener. -->
+<script>
+function exportFullFeaso(id, e){
+  if (e){ e.preventDefault(); e.stopPropagation(); }
+  id = (typeof id === 'string') ? parseInt(id, 10) : id;
+  var pr = props.find(function(p){ return p.id == id; });
+  if (!pr){ alert('Property not found.'); return; }
+  if (!window.XLSX){ alert('Excel library not loaded yet. Try again in a moment.'); return; }
+  try { serverLog('full_feaso_download', {addr: pr.addr, state: pr.state, sa4: pr.sa4, price: pr.price}); } catch(_){}
+
+  var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
+  if (!sda){ alert('No SDA pricing for this property\'s SA4 - cannot build a feaso.'); return; }
+  var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
+  var price = propPrice[id] || pr.price;
+  var catVal = propCat[id] || null;
+  var extrasTotal = getExtrasTotal(id);
+  var capUsed = effectiveCap(id);
+
+  var fmod = document.getElementById('fmod') ? document.getElementById('fmod').value : '';
+  var prefer = fmod || pr.bestModel || '';
+  var models = ['2p','3p','dp'].map(function(mm){
+    return calcModel(price, pr.land, sda, mm, p, catVal, extrasTotal, capUsed);
+  }).filter(Boolean);
+  if (!models.length){ alert('No viable SDA model for this property (check land size and SA4 pricing).'); return; }
+  var m = prefer ? models.filter(function(x){ return x.model === prefer; })[0] : null;
+  if (!m) m = models.slice().sort(function(a,b){ return b.ret - a.ret; })[0];
+
+  var designLabel = m.model === 'dp' ? 'Duplex (two 2-participant dwellings)' : m.model === '3p' ? '3-participant house' : '2-participant house';
+  var catMap = {il:'Improved Liveability (IL)', fa:'Fully Accessible (FA)', hps:'High Physical Support (HPS)'};
+  var catLabel = catVal ? (catMap[catVal] || catVal) : 'Improved Liveability (default)';
+  var baseBuild = (m.model === 'dp') ? (p.bdp * 2) : p['b' + m.model];
+  var contingency = baseBuild * p.cg;
+  var sa3Name = resolveSA3Name(pr.addr, pr.state, typeof pr.sa3 === 'string' ? pr.sa3 : '');
+  var sa3Obj = getSA3(sa3Name, pr.sa4, pr.state);
+  var sa3Demand = sa3Obj ? (sa3Obj.total || 0) : '';
+  var developerProfit = m.endSale - m.total;
+  var suburb = (typeof _partnerSuburb === 'function') ? _partnerSuburb(pr.addr) : '';
+  var today = new Date();
+
+  var rows = [], fmt = {};
+  function add(label, val, kind){ rows.push(val === undefined ? [label] : [label, val]); if (kind) fmt[rows.length] = kind; }
+
+  add('DRAFT FEASIBILITY - NDIS SDA BUILD');
+  add('Radius Property Group');
+  add('');
+  add('Address', pr.addr);
+  add('Suburb', suburb);
+  add('SA3 region', sa3Obj ? sa3Obj.sa3 : sa3Name);
+  add('SA4 region', pr.sa4 || '');
+  add('Build model', designLabel);
+  add('SDA places', m.pts);
+  add('Design category', catLabel);
+  if (pr.land) add('Land size (sqm)', pr.land);
+  add('Prepared', today.toLocaleDateString());
+  add('');
+  add('INCOME - ANNUAL');
+  add('Number of participants', m.pts);
+  add('SDA payment per participant', Math.round(m.sdaRate), 'cur');
+  add('Reasonable rent contribution per participant', SH.rrc, 'cur');
+  add('Gross rental income / year', Math.round(m.gross), 'cur');
+  add('Net rental income / year (after ongoing costs)', Math.round(m.net), 'cur');
+  add('');
+  add('PURCHASE & LAND COSTS');
+  add('Property purchase price', Math.round(price), 'cur');
+  add('Stamp duty (' + (p.stamp*100).toFixed(2) + '%)', Math.round(price*p.stamp), 'cur');
+  add('Legals / conveyancing', p.leg, 'cur');
+  add('PEXA settlement', p.pexa, 'cur');
+  add('Radius acquisition fee (' + (p.ba*100).toFixed(1) + '%)', Math.round(price*p.ba), 'cur');
+  add('Valuation', p.val, 'cur');
+  add('Total purchase & land costs', Math.round(m.landCost), 'cur');
+  add('');
+  add('CONSTRUCTION COSTS');
+  add('Build cost', Math.round(baseBuild), 'cur');
+  add('Construction contingency (' + (p.cg*100).toFixed(1) + '%)', Math.round(contingency), 'cur');
+  add('Total construction costs', Math.round(m.build), 'cur');
+  add('');
+  add('CONSULTANTS');
+  add('Total consultant costs', Math.round(m.cons), 'cur');
+  if (extrasTotal){ add('Other adjustments (extras / savings)', Math.round(extrasTotal), 'cur'); }
+  add('');
+  add('TOTAL DEVELOPMENT COST', Math.round(m.total), 'cur');
+  add('');
+  add('ONGOING COSTS / YEAR (if held)');
+  add('SDA management (' + (SH.sdaMgr*100).toFixed(1) + '%)', Math.round(m.gross*SH.sdaMgr), 'cur');
+  add('Cleaning / grounds (' + (SH.clean*100).toFixed(2) + '%)', Math.round(m.gross*SH.clean), 'cur');
+  add('Fire safety audit', SH.fire*m.dw, 'cur');
+  add('Insurance', SH.ins*m.dw, 'cur');
+  add('Rates', SH.rates*m.dw, 'cur');
+  add('Repairs & maintenance', SH.maint*m.dw, 'cur');
+  add('Total ongoing costs', Math.round(m.ongoing), 'cur');
+  add('');
+  add('RETURNS & FEASIBILITY');
+  add('Net rental income / year', Math.round(m.net), 'cur');
+  add('Net yield (unlevered)', m.ret, 'pct');
+  add('Levered return', m.levRet, 'pct');
+  add('Exit cap rate', m.cap, 'pct');
+  add('End sale value (net divided by cap rate)', Math.round(m.endSale), 'cur');
+  add('Developer profit (end sale less total cost)', Math.round(developerProfit), 'cur');
+  add('Profit on cost', m.poc, 'pct');
+  add('Projected IRR (' + Math.round(p.hold) + '-year hold)', (m.irr || 0), 'pct');
+  add('Maximum land price (to hold target return)', Math.round(m.maxL), 'cur');
+  add('');
+  add('Demand - SA4 (' + (pr.sa4 || '') + ')', sda.d);
+  add('Demand - SA3 (' + (sa3Obj ? sa3Obj.sa3 : '') + ')', sa3Demand);
+  add('');
+  add('Assumptions: ' + Math.round(p.hold) + '-year hold; exit cap ' + (m.cap*100).toFixed(2) + '%; rental growth ' + (p.rg*100).toFixed(1) + '%. Figures are estimates generated from the Radius SDA Screener.');
+
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  Object.keys(fmt).forEach(function(rn){
+    var cell = ws['B' + rn];
+    if (cell) cell.z = (fmt[rn] === 'pct') ? '0.00%' : '$#,##0';
+  });
+  ws['!cols'] = [{wch:50},{wch:18}];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Feasibility');
+  var clean = String(pr.addr).replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_').substring(0, 40);
+  XLSX.writeFile(wb, 'Feaso_' + clean + '.xlsx');
 }
 </script>
 

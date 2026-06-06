@@ -1887,6 +1887,25 @@ def create_partner_code():
     return jsonify({'code': code, 'introductions': [dict(r) for r in intros]})
 
 
+@app.route('/api/partner-code/lookup', methods=['GET'])
+@admin_required
+def lookup_partner_code():
+    """Resolve a reference code to its property. Accepts the code with or
+    without the RAD- prefix and any zero-padding (matched on the numeric part).
+    Admin only. Returns {found, code, state, address}."""
+    raw = request.args.get('code') or ''
+    digits = ''.join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return jsonify({'found': False})
+    seq = int(digits)
+    db = get_db()
+    row = db.execute('SELECT code, state, address FROM partner_codes WHERE seq=?', (seq,)).fetchone()
+    db.close()
+    if not row:
+        return jsonify({'found': False})
+    return jsonify({'found': True, 'code': row['code'], 'state': row['state'], 'address': row['address']})
+
+
 @app.route('/api/manual-properties', methods=['GET'])
 @login_required
 def api_list_manual_properties():

@@ -8643,7 +8643,7 @@ function buildDetail(pr,tgt){
     + '<button onclick="exportPipelineXLSX('+pr.id+',event)" style="padding:10px;background:#EA580C;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">&#10142; Send to BA pipeline</button>'
     + '<button onclick="exportFullFeaso('+pr.id+',event)" style="padding:8px;background:#0E7490;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128202; Download Full Feaso (PDF)</button>'
     + '<button onclick="exportPDFCover('+pr.id+',event)" style="padding:8px;background:#A32D2D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128196; Download PDF Cover Sheet</button>'
-    + ((window.CURRENT_USER && window.CURRENT_USER.is_admin) ? ('<div id="partner-info-'+pr.id+'" style="font-size:11px;color:#555;margin-top:6px;line-height:1.5"></div><button onclick="generatePartnerOnePager('+pr.id+',event)" style="padding:8px;background:#002060;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">&#128196; Generate Partner One-Pager</button>') : '')
+    + ((window.CURRENT_USER && window.CURRENT_USER.is_admin) ? ('<div id="partner-info-'+pr.id+'" style="font-size:11px;color:#555;margin-top:6px;line-height:1.5"></div><button onclick="generatePartnerOnePager('+pr.id+',event)" style="padding:8px;background:#002060;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">&#128196; Generate Partner Doc</button>') : '')
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'    + '<button id="docx-btn-'+pr.id+'" onclick="exportDOCX('+pr.id+',event)" style="padding:8px;background:#185FA5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;width:100%">&#128196; Download Word Report</button>'    + '</div>'
     + '</div>';
 
@@ -13515,6 +13515,10 @@ function _partnerSuburb(addr){
 }
 
 function buildPartnerData(pr, code){
+  // Builds the partner-facing data object. Location is reduced to SA4 region +
+  // RAD code only - the street address and suburb are NEVER placed in this
+  // object, so the renderer has no path to leak them. SA4 is broad enough that
+  // land size + costs cannot identify the listing, so the full feaso is safe.
   var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
   if (!sda) return null;
   var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
@@ -13522,11 +13526,15 @@ function buildPartnerData(pr, code){
   var livePrice = propPrice[pr.id] || pr.price;
   var extrasTotal = getExtrasTotal(pr.id);
   var capOv = effectiveCap(pr.id);
+  var fmod = document.getElementById('fmod') ? document.getElementById('fmod').value : '';
+  var prefer = fmod || pr.bestModel || '';
   var models = ['2p','3p','dp'].map(function(mm){
     return calcModel(livePrice, pr.land, sda, mm, p, catUsed, extrasTotal, capOv);
-  }).filter(Boolean).sort(function(a,b){ return b.ret - a.ret; });
+  }).filter(Boolean);
   if (!models.length) return null;
-  var m = models[0];
+  var m = prefer ? models.filter(function(x){ return x.model === prefer; })[0] : null;
+  if (!m) m = models.slice().sort(function(a,b){ return b.ret - a.ret; })[0];
+
   var sa3Name = resolveSA3Name(pr.addr, pr.state, typeof pr.sa3 === 'string' ? pr.sa3 : '');
   var sa3Obj = getSA3(sa3Name, pr.sa4, pr.state);
   var total = sa3Obj ? (sa3Obj.total || 0) : null;
@@ -13535,110 +13543,156 @@ function buildPartnerData(pr, code){
   var designLabel = m.model === 'dp' ? 'SDA duplex (two 2-participant dwellings)'
                   : m.model === '3p' ? '3-participant SDA house'
                   : '2-participant SDA house';
+  var baseBuild = (m.model === 'dp') ? (p.bdp * 2) : p['b' + m.model];
   return {
-    code: code || '', suburb: _partnerSuburb(pr.addr),
-    sa3: sa3Obj ? sa3Obj.sa3 : (sa3Name || ''),
+    code: code || '',
+    sa4: pr.sa4 || '',                 // location: SA4 region only
+    sa3: sa3Obj ? sa3Obj.sa3 : (sa3Name || ''),  // SA3 used for demand only
     design: designLabel, places: m.pts, buildType: catLabel,
+    landSize: pr.land || null,
+    // income (annual)
+    sdaRate: m.sdaRate, rrc: SH.rrc, gross: m.gross, net: m.net,
+    // purchase & land costs
+    price: livePrice, stampDuty: livePrice * p.stamp, stampRate: p.stamp,
+    legals: p.leg, pexa: p.pexa,
+    acquisitionFee: livePrice * p.ba, baRate: p.ba, valuation: p.val,
+    landTotal: m.landCost,
+    // construction
+    buildBase: baseBuild, contingency: baseBuild * p.cg, cgRate: p.cg,
+    constructionTotal: m.build,
+    // consultants + extras + total
+    consultants: m.cons, extras: extrasTotal, totalDev: m.total,
+    // ongoing (annual)
+    ongSdaMgmt: m.gross * SH.sdaMgr, sdaMgrRate: SH.sdaMgr,
+    ongClean: m.gross * SH.clean, cleanRate: SH.clean,
+    ongFire: SH.fire * m.dw, ongIns: SH.ins * m.dw,
+    ongRates: SH.rates * m.dw, ongMaint: SH.maint * m.dw,
+    ongTotal: m.ongoing,
+    // returns & feasibility
+    netYield: m.ret, levRet: m.levRet, exitCap: m.cap, endSale: m.endSale,
+    developerProfit: m.endSale - m.total, poc: m.poc, irr: m.irr, maxL: m.maxL,
+    holdYears: Math.round(p.hold), rentalGrowth: p.rg,
+    // demand evidence (SA3)
     demandTotal: total, demandCap: cap13,
     demandGap: (total != null && cap13 != null) ? (total - cap13) : null,
-    totalInvestment: m.total, netRent: m.net,
-    netYield: m.ret, irr: m.irr, holdYears: Math.round(p.hold),
-    exitCap: m.cap, rentalGrowth: p.rg,
     source: PARTNER_DEMAND_SOURCE, genDate: new Date()
   };
 }
 
 function exportPartnerOnePager(d){
+  // Renders the partner doc from d ALONE - no pr in scope, so the street
+  // address / suburb cannot appear (they are never in d). Location shows as
+  // SA4 region + RAD code. Full feaso disclosed (costs, margin, max land).
   if (!window.jspdf || !window.jspdf.jsPDF){ alert('PDF library not loaded yet. Please try again in a moment.'); return; }
   var jsPDF = window.jspdf.jsPDF;
   var doc = new jsPDF({orientation:'p', unit:'mm', format:'a4'});
-  var BRAND=[0,32,96], ACCENT=[24,95,165], GRAY=[60,60,60], GREEN=[15,110,86], LIGHT=[235,238,243];
-  var pct = function(x){ return (x == null || isNaN(x)) ? 'n/a' : (x*100).toFixed(1)+'%'; };
-  var y = 44;
-  function sectionTitle(t){
-    doc.setFillColor(LIGHT[0],LIGHT[1],LIGHT[2]); doc.rect(14,y-4,182,7,'F');
-    doc.setTextColor(ACCENT[0],ACCENT[1],ACCENT[2]); doc.setFont('helvetica','bold'); doc.setFontSize(9.5);
-    doc.text(t.toUpperCase(), 16, y+0.8); y += 9;
-    doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-  }
-  function line(label, val){
-    doc.setFont('helvetica','normal'); doc.text(label, 16, y);
-    doc.setFont('helvetica','bold'); doc.text(String(val), 120, y); y += 6.5;
-  }
-  function lineHi(label, val){
-    doc.setFillColor(240,245,251); doc.rect(14, y-4.5, 182, 7, 'F');
-    doc.setFont('helvetica','normal'); doc.text(label, 16, y);
-    doc.setFont('helvetica','bold'); doc.text(String(val), 120, y); y += 7;
-  }
+  var BRAND=[0,32,96], ACCENT=[24,95,165], GRAY=[55,55,55], GREEN=[15,110,86], LIGHT=[235,238,243];
+  function money(n){ return (n == null || isNaN(n)) ? 'n/a' : '$' + Math.round(n).toLocaleString(); }
+  function pct(n){ return (n == null || isNaN(n)) ? 'n/a' : (n*100).toFixed(2)+'%'; }
+
   doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]); doc.rect(0,0,210,34,'F');
   doc.setFillColor(255,255,255); doc.roundedRect(12,7,52,20,2,2,'F');
   try{ doc.addImage('data:image/jpeg;base64,'+LOGO_JPG_B64,'JPEG',14,9,48,16); }catch(err){}
   doc.setTextColor(255,255,255);
-  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text('Investment Opportunity', 200, 16, {align:'right'});
-  doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Ref: '+d.code, 200, 24, {align:'right'});
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text('Investment Opportunity', 200, 15, {align:'right'});
+  doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Ref: ' + d.code, 200, 23, {align:'right'});
   doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.text('Specialist Disability Accommodation', 200, 30, {align:'right'});
-  doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','bold'); doc.setFontSize(13);
-  var headline = d.design + ', ' + (d.suburb || 'this locality') + (d.sa3 ? ', within the '+d.sa3+' region' : '');
-  var hLines = doc.splitTextToSize(headline, 182);
-  doc.text(hLines, 14, y); y += hLines.length*6 + 4;
-  sectionTitle('The opportunity');
-  line('Design model', d.design);
-  line('SDA places', String(d.places));
-  line('Design category', d.buildType);
-  y += 3;
-  sectionTitle('Demand evidence - ' + (d.sa3 || 'SA3 region'));
-  if (d.demandTotal != null) line('Participants with identified SDA need', d.demandTotal.toLocaleString());
-  if (d.demandCap != null)   line('Enrolled 1-3 bedroom dwelling capacity', d.demandCap.toLocaleString()+' places');
+
+  doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.text(d.design, 14, 43);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  doc.text('SA4 region: ' + (d.sa4 || '-') + '   |   ' + d.places + ' SDA places   |   ' + d.buildType + (d.landSize ? ('   |   Land ' + d.landSize + ' sqm') : ''), 14, 49);
+
+  var bodyTop = 58;
+  var L = {x:14, y:bodyTop, w:88}, R = {x:108, y:bodyTop, w:88};
+  function sect(c, title){
+    c.y += 1.5;
+    doc.setFillColor(LIGHT[0],LIGHT[1],LIGHT[2]); doc.rect(c.x, c.y-4, c.w, 6, 'F');
+    doc.setTextColor(ACCENT[0],ACCENT[1],ACCENT[2]); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.text(title.toUpperCase(), c.x+2, c.y+0.4);
+    c.y += 7; doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  }
+  function row(c, label, value, bold){
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.text(String(label), c.x+1, c.y);
+    doc.text(String(value), c.x + c.w, c.y, {align:'right'});
+    c.y += 5;
+  }
+  function totalBar(c, label, value){
+    c.y += 1;
+    doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]); doc.rect(c.x, c.y-4, c.w, 6.5, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(9.5);
+    doc.text(label, c.x+2, c.y+0.6); doc.text(value, c.x + c.w - 1, c.y+0.6, {align:'right'});
+    c.y += 8.5; doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  }
+
+  sect(L, 'Income - annual');
+  row(L, 'Participants', d.places);
+  row(L, 'SDA payment / participant', money(d.sdaRate));
+  row(L, 'Reasonable rent contribution / part.', money(d.rrc));
+  row(L, 'Gross rental income / yr', money(d.gross));
+  row(L, 'Net rental income / yr', money(d.net), true);
+  sect(L, 'Purchase & land costs');
+  row(L, 'Property purchase price', money(d.price));
+  row(L, 'Stamp duty (' + (d.stampRate*100).toFixed(2) + '%)', money(d.stampDuty));
+  row(L, 'Legals / conveyancing', money(d.legals));
+  row(L, 'PEXA settlement', money(d.pexa));
+  row(L, 'Radius acquisition fee (' + (d.baRate*100).toFixed(1) + '%)', money(d.acquisitionFee));
+  row(L, 'Valuation', money(d.valuation));
+  row(L, 'Total purchase & land', money(d.landTotal), true);
+  sect(L, 'Construction costs');
+  row(L, 'Build cost', money(d.buildBase));
+  row(L, 'Contingency (' + (d.cgRate*100).toFixed(1) + '%)', money(d.contingency));
+  row(L, 'Total construction', money(d.constructionTotal), true);
+  sect(L, 'Consultants');
+  row(L, 'Total consultant costs', money(d.consultants), true);
+  if (d.extras) row(L, 'Other adjustments (extras/savings)', money(d.extras));
+  totalBar(L, 'TOTAL DEVELOPMENT COST', money(d.totalDev));
+
+  sect(R, 'Ongoing costs / yr (if held)');
+  row(R, 'SDA management (' + (d.sdaMgrRate*100).toFixed(1) + '%)', money(d.ongSdaMgmt));
+  row(R, 'Cleaning / grounds (' + (d.cleanRate*100).toFixed(2) + '%)', money(d.ongClean));
+  row(R, 'Fire safety audit', money(d.ongFire));
+  row(R, 'Insurance', money(d.ongIns));
+  row(R, 'Rates', money(d.ongRates));
+  row(R, 'Repairs & maintenance', money(d.ongMaint));
+  row(R, 'Total ongoing', money(d.ongTotal), true);
+  sect(R, 'Returns & feasibility');
+  row(R, 'Net rental income / yr', money(d.net));
+  row(R, 'Net yield (unlevered)', pct(d.netYield), true);
+  row(R, 'Levered return', pct(d.levRet));
+  row(R, 'Exit cap rate', pct(d.exitCap));
+  row(R, 'End sale value', money(d.endSale));
+  row(R, 'Developer profit', money(d.developerProfit), true);
+  row(R, 'Profit on cost', pct(d.poc), true);
+  row(R, 'Projected IRR (' + d.holdYears + '-yr hold)', pct(d.irr || 0), true);
+  row(R, 'Maximum land price', money(d.maxL));
+
+  sect(R, 'Demand evidence - ' + (d.sa3 || 'SA3 region'));
+  if (d.demandTotal != null) row(R, 'Participants with SDA need', d.demandTotal.toLocaleString());
+  if (d.demandCap != null) row(R, 'Enrolled 1-3 bdrm capacity', d.demandCap.toLocaleString());
   if (d.demandGap != null){
-    var gapTxt = d.demandGap > 0 ? (d.demandGap.toLocaleString()+' places undersupply')
-               : (d.demandGap === 0 ? 'Balanced' : (Math.abs(d.demandGap).toLocaleString()+' places oversupply'));
+    var gapTxt = d.demandGap > 0 ? (d.demandGap.toLocaleString() + ' undersupply')
+               : (d.demandGap === 0 ? 'Balanced' : (Math.abs(d.demandGap).toLocaleString() + ' oversupply'));
     var gc = d.demandGap > 0 ? GREEN : GRAY;
     doc.setFont('helvetica','bold'); doc.setTextColor(gc[0],gc[1],gc[2]);
-    doc.text('Demand gap', 16, y); doc.text(gapTxt, 120, y); y += 6.5;
-    doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
+    doc.text('Demand gap', R.x+1, R.y); doc.text(gapTxt, R.x + R.w, R.y, {align:'right'});
+    R.y += 5; doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]); doc.setFont('helvetica','normal');
   }
-  doc.setFont('helvetica','italic'); doc.setFontSize(8);
-  var srcLines = doc.splitTextToSize('Source: '+d.source, 182);
-  doc.text(srcLines, 16, y); y += srcLines.length*4 + 4;
-  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-  sectionTitle('Projected return');
-  lineHi('Total investment required', d.totalInvestment != null ? '$' + Math.round(d.totalInvestment).toLocaleString() : 'n/a');
-  lineHi('Net rental income (p.a.)', d.netRent != null ? '$' + Math.round(d.netRent).toLocaleString() : 'n/a');
-  line('Net yield', pct(d.netYield));
-  line('Projected IRR (' + d.holdYears + '-year hold)', pct(d.irr));
-  y += 1;
-  doc.setFont('helvetica','italic'); doc.setFontSize(8);
-  var assumptions = 'Assumptions: ' + d.holdYears + '-year hold; exit capitalisation rate ' + pct(d.exitCap)
-    + '; annual rental growth ' + pct(d.rentalGrowth)
-    + '; returns are modelled on a completed, tenanted dwelling and are subject to construction and settlement timing. Figures are estimates only.';
-  var aLines = doc.splitTextToSize(assumptions, 182);
-  doc.text(aLines, 16, y); y += aLines.length*4 + 5;
-  doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
-  sectionTitle('Why this site');
-  var why;
-  if (d.demandGap != null && d.demandGap > 0){
-    why = 'The ' + (d.sa3 || 'local') + ' region records '
-        + (d.demandTotal != null ? d.demandTotal.toLocaleString() : '')
-        + ' participants with identified SDA needs against '
-        + (d.demandCap != null ? d.demandCap.toLocaleString() : '')
-        + ' enrolled 1-3 bedroom dwellings - a shortfall of ' + d.demandGap.toLocaleString() + ' places. ';
-  } else {
-    why = 'This site sits within the ' + (d.sa3 || 'local') + ' SDA market. ';
-  }
-  why += 'A ' + d.design.toLowerCase() + ' in ' + (d.suburb || 'this locality')
-       + ' is positioned to meet that need, close to established services and transport. The configuration suits eligible NDIS participants seeking quality, purpose-built accommodation in a well-located area.';
-  var wLines = doc.splitTextToSize(why, 182);
-  doc.text(wLines, 16, y); y += wLines.length*5 + 4;
-  var fy = 270;
+  doc.setFont('helvetica','italic'); doc.setFontSize(7);
+  var srcLines = doc.splitTextToSize('Source: ' + d.source, R.w);
+  doc.text(srcLines, R.x+1, R.y); R.y += srcLines.length*3.5;
+
+  var fy = 283;
   doc.setDrawColor(200,200,200); doc.line(14, fy, 196, fy);
   doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(BRAND[0],BRAND[1],BRAND[2]);
-  doc.text('Ref: '+d.code, 14, fy+5);
+  doc.text('Ref: ' + d.code, 14, fy+4.5);
   doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
-  doc.text('Generated ' + d.genDate.toLocaleDateString(), 196, fy+5, {align:'right'});
+  doc.text('Generated ' + d.genDate.toLocaleDateString(), 196, fy+4.5, {align:'right'});
   doc.setFontSize(7);
   var disc = doc.splitTextToSize(PARTNER_DISCLAIMER, 182);
-  doc.text(disc, 14, fy+10);
-  doc.save('Partner_One-Pager_' + (d.code || 'RAD') + '.pdf');
+  doc.text(disc, 14, fy+8.5);
+  doc.save('Partner_Doc_' + (d.code || 'RAD') + '.pdf');
 }
 
 function loadPartnerInfo(id){
@@ -13665,7 +13719,7 @@ function generatePartnerOnePager(id, e){
   var pr = props.find(function(p){ return p.id == id; });
   if (!pr){ alert('Property not found.'); return; }
   if (!buildPartnerData(pr, '')){
-    alert('No viable SDA model for this property (check land size and SA4 pricing) - nothing to put on a one-pager.');
+    alert('No viable SDA model for this property (check land size and SA4 pricing) - nothing to put on a partner doc.');
     return;
   }
   fetch('/api/partner-code', {
@@ -13674,13 +13728,13 @@ function generatePartnerOnePager(id, e){
     body: JSON.stringify({state: pr.state, address: pr.addr, partner: 'Supavest'})
   }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
     .then(function(res){
-      if (!res.ok){ alert('Could not generate one-pager: ' + ((res.j && res.j.error) || 'permission denied')); return; }
+      if (!res.ok){ alert('Could not generate partner doc: ' + ((res.j && res.j.error) || 'permission denied')); return; }
       var data = buildPartnerData(pr, res.j.code);
       if (!data){ alert('No viable SDA model for this property.'); return; }
       exportPartnerOnePager(data);
       try{ loadPartnerInfo(id); }catch(_){}
     })
-    .catch(function(err){ alert('Could not generate one-pager: ' + err); });
+    .catch(function(err){ alert('Could not generate partner doc: ' + err); });
 }
 </script>
 

@@ -8643,7 +8643,7 @@ function buildDetail(pr,tgt){
     + '<button onclick="exportPipelineXLSX('+pr.id+',event)" style="padding:10px;background:#EA580C;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:700">&#10142; Send to BA pipeline</button>'
     + '<button onclick="exportCSV('+pr.id+',event)" style="padding:8px;background:#0F6E56;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">Download CSV</button>'
     + '<button onclick="exportPDFCover('+pr.id+',event)" style="padding:8px;background:#A32D2D;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;margin-top:4px">&#128196; Download PDF Cover Sheet</button>'
-    + ((window.CURRENT_USER && window.CURRENT_USER.is_admin) ? '<button onclick="generatePartnerOnePager('+pr.id+',event)" style="padding:8px;background:#002060;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">&#128196; Generate Partner One-Pager</button>' : '')
+    + ((window.CURRENT_USER && window.CURRENT_USER.is_admin) ? ('<div id="partner-info-'+pr.id+'" style="font-size:11px;color:#555;margin-top:6px;line-height:1.5"></div><button onclick="generatePartnerOnePager('+pr.id+',event)" style="padding:8px;background:#002060;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;margin-top:4px">&#128196; Generate Partner One-Pager</button>') : '')
     + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">'    + '<button id="docx-btn-'+pr.id+'" onclick="exportDOCX('+pr.id+',event)" style="padding:8px;background:#185FA5;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;width:100%">&#128196; Download Word Report</button>'    + '</div>'
     + '</div>';
 
@@ -9008,7 +9008,7 @@ function toggleD(id){
     if(td){
       var pr=props.find(function(p){return p.id==id;});
       if(pr){
-        try{ td.innerHTML=buildDetail(pr,getTgt()); renderSiteFitSummary(pr); }
+        try{ td.innerHTML=buildDetail(pr,getTgt()); renderSiteFitSummary(pr); try{ loadPartnerInfo(id); }catch(_){} }
         catch(e){ td.innerHTML='<div style="padding:12px;color:#A32D2D">Error: '+e.message+'</div>'; }
         // Log property view to server
         serverLog('property_view',{addr:pr.addr,state:pr.state,sa4:pr.sa4,price:pr.price});
@@ -13403,9 +13403,29 @@ function _propSearchMatches(q){
 }
 function _propSearchSafe(s){ return String(s||'').replace(/[<>&]/g,''); }
 function runPropSearch(){
+  var q = (document.getElementById('prop-search-input').value || '').trim();
+  if(!q) return;
+  if(q.toLowerCase().indexOf('rad') === 0 || /^[0-9]{1,4}$/.test(q)){
+    _lookupPartnerCode(q, function(){ _addressSearch(q); });
+    return;
+  }
+  _addressSearch(q);
+}
+function _lookupPartnerCode(q, onMiss){
+  fetch('/api/partner-code/lookup?code=' + encodeURIComponent(q), {credentials:'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (j && j.found && j.address){
+        var input = document.getElementById('prop-search-input');
+        if (input) input.value = j.address;
+        _addressSearch(j.address);
+      } else { onMiss(); }
+    })
+    .catch(function(){ onMiss(); });
+}
+function _addressSearch(q){
   var box = document.getElementById('prop-search-results');
   if(box){ box.style.display='none'; box.innerHTML=''; }
-  var q = document.getElementById('prop-search-input').value;
   var matches = _propSearchMatches(q);
   if(!matches.length){
     if(box){
@@ -13621,6 +13641,24 @@ function exportPartnerOnePager(d){
   doc.save('Partner_One-Pager_' + (d.code || 'RAD') + '.pdf');
 }
 
+function loadPartnerInfo(id){
+  if (!(window.CURRENT_USER && window.CURRENT_USER.is_admin)) return;
+  var el = document.getElementById('partner-info-' + id);
+  if (!el) return;
+  var pr = props.find(function(p){ return p.id == id; });
+  if (!pr) return;
+  fetch('/api/partner-code?state=' + encodeURIComponent(pr.state) + '&address=' + encodeURIComponent(pr.addr), {credentials:'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.code){ el.innerHTML = '<span style="color:#999">Not yet introduced to a partner.</span>'; return; }
+      var intro = (j.introductions && j.introductions.length) ? j.introductions.map(function(x){
+        var dt = x.introduced_at ? String(x.introduced_at).split(' ')[0] : '';
+        return 'Introduced to ' + _propSearchSafe(x.partner_name) + (dt ? (' on ' + dt) : '') + (x.introduced_by_name ? (' by ' + _propSearchSafe(x.introduced_by_name)) : '');
+      }).join('<br>') : '';
+      el.innerHTML = '<span style="color:#002060;font-weight:700">Ref: ' + _propSearchSafe(j.code) + '</span>' + (intro ? ('<br>' + intro) : '');
+    })
+    .catch(function(){});
+}
 function generatePartnerOnePager(id, e){
   if (e){ e.preventDefault(); e.stopPropagation(); }
   id = (typeof id === 'string') ? parseInt(id, 10) : id;
@@ -13640,6 +13678,7 @@ function generatePartnerOnePager(id, e){
       var data = buildPartnerData(pr, res.j.code);
       if (!data){ alert('No viable SDA model for this property.'); return; }
       exportPartnerOnePager(data);
+      try{ loadPartnerInfo(id); }catch(_){}
     })
     .catch(function(err){ alert('Could not generate one-pager: ' + err); });
 }

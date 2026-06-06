@@ -13521,6 +13521,7 @@ function buildPartnerData(pr, code){
     design: designLabel, places: m.pts, buildType: catLabel,
     demandTotal: total, demandCap: cap13,
     demandGap: (total != null && cap13 != null) ? (total - cap13) : null,
+    totalInvestment: m.total, netRent: m.net,
     netYield: m.ret, irr: m.irr, holdYears: Math.round(p.hold),
     exitCap: m.cap, rentalGrowth: p.rg,
     source: PARTNER_DEMAND_SOURCE, genDate: new Date()
@@ -13543,6 +13544,11 @@ function exportPartnerOnePager(d){
   function line(label, val){
     doc.setFont('helvetica','normal'); doc.text(label, 16, y);
     doc.setFont('helvetica','bold'); doc.text(String(val), 120, y); y += 6.5;
+  }
+  function lineHi(label, val){
+    doc.setFillColor(240,245,251); doc.rect(14, y-4.5, 182, 7, 'F');
+    doc.setFont('helvetica','normal'); doc.text(label, 16, y);
+    doc.setFont('helvetica','bold'); doc.text(String(val), 120, y); y += 7;
   }
   doc.setFillColor(BRAND[0],BRAND[1],BRAND[2]); doc.rect(0,0,210,34,'F');
   doc.setFillColor(255,255,255); doc.roundedRect(12,7,52,20,2,2,'F');
@@ -13576,6 +13582,8 @@ function exportPartnerOnePager(d){
   doc.text(srcLines, 16, y); y += srcLines.length*4 + 4;
   doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
   sectionTitle('Projected return');
+  lineHi('Total investment required', d.totalInvestment != null ? '$' + Math.round(d.totalInvestment).toLocaleString() : 'n/a');
+  lineHi('Net rental income (p.a.)', d.netRent != null ? '$' + Math.round(d.netRent).toLocaleString() : 'n/a');
   line('Net yield', pct(d.netYield));
   line('Projected IRR (' + d.holdYears + '-year hold)', pct(d.irr));
   y += 1;

@@ -117,8 +117,8 @@ tr.dr:hover td{background:#fafaf9}
 </div>
 
 <div class="formula">
-  <strong>Income:</strong> Gross = (Annual SDA rate/participant + Annual RRC $13,171) &times; participants &nbsp;&middot;&nbsp;
-  e.g. VIC 2P IL Melb NE: ($71,545 + $13,171) &times; 2 = <strong>$169,432/yr</strong>
+  <strong>Income:</strong> Gross = (Annual SDA rate/participant + Annual RRC $13,419) &times; participants &nbsp;&middot;&nbsp;
+  e.g. VIC 2P IL Melb NE: ($74,836 + $13,419) &times; 2 = <strong>$176,510/yr</strong>
 </div>
 
 <div class="zones">
@@ -307,7 +307,7 @@ tr.dr:hover td{background:#fafaf9}
     <div class="fg"><label>Min demand</label><input type="number" id="prd" placeholder="200" oninput="renderPricing()"></div>
   </div>
   <div class="tw"><table>
-    <thead><tr><th style="width:6%">State</th><th style="width:24%">SA4 area</th><th style="width:8%">Demand</th><th style="width:12%">HPS 2P/yr</th><th style="width:12%">FA 2P/yr</th><th style="width:12%">IL 2P/yr</th><th style="width:12%">HPS 3P/yr</th><th style="width:14%">Max buy 2P</th></tr></thead>
+    <thead><tr><th style="width:6%">State</th><th style="width:34%">SA4 area</th><th style="width:10%">Demand</th><th style="width:12.5%">HPS 2P/yr</th><th style="width:12.5%">FA 2P/yr</th><th style="width:12.5%">IL 2P/yr</th><th style="width:12.5%">HPS 3P/yr</th></tr></thead>
     <tbody id="ptbody"></tbody>
   </table></div>
 </div>
@@ -5939,76 +5939,87 @@ qld:{
 };
 
 var SDA=[
-  // SDA rates: Base Rates tab × Location Factors tab from NDIS_How_Much_Can_I_Pay_v4.xlsx
-  // IL/FA/HPS = base rate × location factor for House 2 or 3 residents
-  // RRC $13,171 added per participant in calcModel
+  // SDA rates: NDIS Pricing Arrangements for SDA 2026-27 v1.0 (released 30 July 2026, valid from 1 July 2026)
+  //   Base prices: Appendix A, Table 12 — Post-2023 New Build, With Sprinklers,
+  //                GST paid & input tax credits NOT claimed, with On-site Overnight Assistance
+  //                House 2 residents: IL $83,151 / FA $84,772 / HPS $99,180
+  //                House 3 residents: IL $57,596 / FA $58,940 / HPS $69,014
+  //   Location factors: Appendix E, Table 23 (House 2 residents / House 3 residents columns)
+  //   IL/FA/HPS = base price x location factor, rounded to nearest dollar
+  //   Refresh annually — NDIS publishes ~late June/July for a 1 July start
+  // RRC $13,419/participant/yr added in calcModel (SH.rrc)
+  //   = MRRC single $516.11/fortnight x 26 (Table 2, period 20 Mar 2026 - 19 Sep 2026)
+  //   NOTE: MRRC is re-indexed to the DSP on 20 Sep 2026 (Pricing Arrangements v2.0) — revisit then
+  // NOTE (Aug 2026): the old static 'max buy' fields were removed from these records.
+  //   They never recalculated and had drifted to build-cost values. Max purchase price is
+  //   computed live by calcMaxLand() and shown as 'Max land @ target' on each dwelling card.
   // 'd' (SA4 demand) = Total Participants with SDA in use or eligible (Table P.9)
   //   Source: NDIS Quarterly Performance Report Q1 2026, as at 31 March 2026
   //   Refresh quarterly from https://data.ndis.gov.au/
-  {st:'nsw',sa4:'Capital Region',d:178,hps2:86284,fa2:73750,il2:72340,hps3:60041,fa3:51277,il3:50107,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Central Coast',d:436,hps2:93870,fa2:80234,il2:78699,hps3:65979,fa3:56348,il3:55063,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Central West',d:291,hps2:89129,fa2:76181,il2:74724,hps3:62020,fa3:52967,il3:51759,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Coffs Harbour - Grafton',d:150,hps2:86284,fa2:73750,il2:72340,hps3:60041,fa3:51277,il3:50107,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Far West and Orana',d:168,hps2:94818,fa2:81044,il2:79494,hps3:66639,fa3:56911,il3:55614,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Hunter Valley exc Newcastle',d:270,hps2:84388,fa2:72129,il2:70750,hps3:58721,fa3:50150,il3:49006,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Illawarra',d:371,hps2:98611,fa2:84286,il2:82674,hps3:68618,fa3:58602,il3:57266,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Mid North Coast',d:250,hps2:85336,fa2:72940,il2:71545,hps3:59381,fa3:50713,il3:49557,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Murray',d:193,hps2:80595,fa2:68887,il2:67570,hps3:56082,fa3:47896,il3:46804,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'New England and North West',d:166,hps2:81543,fa2:69698,il2:68365,hps3:56742,fa3:48459,il3:47354,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Newcastle and Lake Macquarie',d:566,hps2:93870,fa2:80234,il2:78699,hps3:65319,fa3:55785,il3:54512,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Richmond - Tweed',d:286,hps2:91025,fa2:77802,il2:76314,hps3:63340,fa3:54094,il3:52860,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Riverina',d:179,hps2:83440,fa2:71319,il2:69955,hps3:58062,fa3:49586,il3:48455,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Southern Highlands and Shoalhaven',d:161,hps2:86284,fa2:73750,il2:72340,hps3:60701,fa3:51840,il3:50658,mx2:750000,mx3:900000},
-  {st:'nsw',sa4:'Sydney - Baulkham Hills and Hawkesbury',d:258,hps2:98611,fa2:84286,il2:82674,hps3:68618,fa3:58602,il3:57266,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Blacktown',d:462,hps2:96714,fa2:82665,il2:81084,hps3:67299,fa3:57475,il3:56164,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - City and Inner South',d:146,hps2:182051,fa2:155604,il2:152628,hps3:126680,fa3:108188,il3:105721,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Eastern Suburbs',d:96,hps2:180154,fa2:153984,il2:151039,hps3:125360,fa3:107061,il3:104620,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Inner South West',d:472,hps2:107144,fa2:91580,il2:89828,hps3:74556,fa3:63673,il3:62221,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Inner West',d:176,hps2:138434,fa2:118324,il2:116061,hps3:96329,fa3:82268,il3:80392,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - North Sydney and Hornsby',d:233,hps2:119471,fa2:102115,il2:100162,hps3:83134,fa3:70998,il3:69379,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Northern Beaches',d:254,hps2:124212,fa2:106168,il2:104137,hps3:86432,fa3:73816,il3:72133,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Outer South West',d:281,hps2:88181,fa2:75371,il2:73929,hps3:62020,fa3:52967,il3:51759,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Outer West and Blue Mountains',d:526,hps2:89129,fa2:76181,il2:74724,hps3:62020,fa3:52967,il3:51759,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Parramatta',d:551,hps2:105248,fa2:89959,il2:88238,hps3:73237,fa3:62546,il3:61120,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Ryde',d:335,hps2:112833,fa2:96442,il2:94598,hps3:78515,fa3:67054,il3:65525,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - South West',d:406,hps2:94818,fa2:81044,il2:79494,hps3:65979,fa3:56348,il3:55063,mx2:1000000,mx3:1200000},
-  {st:'nsw',sa4:'Sydney - Sutherland',d:267,hps2:108093,fa2:92390,il2:90623,hps3:75216,fa3:64237,il3:62772,mx2:1000000,mx3:1200000},
-  {st:'qld',sa4:'Brisbane - East',d:226,hps2:87233,fa2:74560,il2:73134,hps3:60701,fa3:51840,il3:50658,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Brisbane - North',d:204,hps2:92922,fa2:79423,il2:77904,hps3:64659,fa3:55221,il3:53962,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Brisbane - South',d:231,hps2:95766,fa2:81854,il2:80289,hps3:66639,fa3:56911,il3:55614,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Brisbane - West',d:124,hps2:92922,fa2:79423,il2:77904,hps3:64659,fa3:55221,il3:53962,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Brisbane Inner City',d:128,hps2:112833,fa2:96442,il2:94598,hps3:77855,fa3:66491,il3:64974,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Cairns',d:224,hps2:91025,fa2:77802,il2:76314,hps3:64000,fa3:54658,il3:53411,mx2:900000,mx3:1080000},
-  {st:'qld',sa4:'Central Queensland',d:184,hps2:96714,fa2:82665,il2:81084,hps3:67958,fa3:58038,il3:56715,mx2:900000,mx3:1080000},
-  {st:'qld',sa4:'Darling Downs - Maranoa',d:61,hps2:80595,fa2:68887,il2:67570,hps3:56082,fa3:47896,il3:46804,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Gold Coast',d:493,hps2:85336,fa2:72940,il2:71545,hps3:59381,fa3:50713,il3:49557,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Ipswich',d:488,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Logan - Beaudesert',d:379,hps2:88181,fa2:75371,il2:73929,hps3:61360,fa3:52404,il3:51209,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Mackay - Isaac - Whitsunday',d:104,hps2:95766,fa2:81854,il2:80289,hps3:67299,fa3:57475,il3:56164,mx2:900000,mx3:1080000},
-  {st:'qld',sa4:'Moreton Bay - North',d:385,hps2:84388,fa2:72129,il2:70750,hps3:58721,fa3:50150,il3:49006,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Moreton Bay - South',d:138,hps2:84388,fa2:72129,il2:70750,hps3:58721,fa3:50150,il3:49006,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Queensland - Outback',d:20,hps2:127056,fa2:108599,il2:106522,hps3:90391,fa3:77197,il3:75436,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Sunshine Coast',d:307,hps2:81543,fa2:69698,il2:68365,hps3:56742,fa3:48459,il3:47354,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Toowoomba',d:287,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:710000,mx3:800000},
-  {st:'qld',sa4:'Townsville',d:227,hps2:93870,fa2:80234,il2:78699,hps3:65979,fa3:56348,il3:55063,mx2:900000,mx3:1080000},
-  {st:'qld',sa4:'Wide Bay',d:336,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:710000,mx3:800000},
-  {st:'vic',sa4:'Ballarat',d:333,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Bendigo',d:212,hps2:80595,fa2:68887,il2:67570,hps3:56082,fa3:47896,il3:46804,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Geelong',d:444,hps2:88181,fa2:75371,il2:73929,hps3:60701,fa3:51840,il3:50658,mx2:850000,mx3:1020000},
-  {st:'vic',sa4:'Hume',d:181,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Latrobe - Gippsland',d:295,hps2:78699,fa2:67267,il2:65980,hps3:54763,fa3:46769,il3:45702,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - Inner',d:387,hps2:129901,fa2:111030,il2:108907,hps3:90391,fa3:77197,il3:75436,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - Inner East',d:435,hps2:109989,fa2:94011,il2:92213,hps3:76536,fa3:65364,il3:63873,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - Inner South',d:488,hps2:108093,fa2:92390,il2:90623,hps3:75216,fa3:64237,il3:62772,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - North East',d:780,hps2:85336,fa2:72940,il2:71545,hps3:59381,fa3:50713,il3:49557,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - North West',d:323,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - Outer East',d:656,hps2:83440,fa2:71319,il2:69955,hps3:58062,fa3:49586,il3:48455,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - South East',d:937,hps2:87233,fa2:74560,il2:73134,hps3:60701,fa3:51840,il3:50658,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Melbourne - West',d:808,hps2:91973,fa2:78613,il2:77109,hps3:64000,fa3:54658,il3:53411,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Mornington Peninsula',d:368,hps2:85336,fa2:72940,il2:71545,hps3:59381,fa3:50713,il3:49557,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'North West',d:277,hps2:79647,fa2:68077,il2:66775,hps3:55422,fa3:47332,il3:46253,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Shepparton',d:195,hps2:78699,fa2:67267,il2:65980,hps3:54763,fa3:46769,il3:45702,mx2:700000,mx3:780000},
-  {st:'vic',sa4:'Warrnambool and South West',d:244,hps2:80595,fa2:68887,il2:67570,hps3:56082,fa3:47896,il3:46804,mx2:700000,mx3:780000},
+  {st:'nsw',sa4:'Capital Region',d:178,hps2:90254,fa2:77143,il2:75667,hps3:62803,fa3:53635,il3:52412},
+  {st:'nsw',sa4:'Central Coast',d:436,hps2:98188,fa2:83924,il2:82319,hps3:69014,fa3:58940,il3:57596},
+  {st:'nsw',sa4:'Central West',d:291,hps2:93229,fa2:79686,il2:78162,hps3:64873,fa3:55404,il3:54140},
+  {st:'nsw',sa4:'Coffs Harbour - Grafton',d:150,hps2:90254,fa2:77143,il2:75667,hps3:62803,fa3:53635,il3:52412},
+  {st:'nsw',sa4:'Far West and Orana',d:168,hps2:99180,fa2:84772,il2:83151,hps3:69704,fa3:59529,il3:58172},
+  {st:'nsw',sa4:'Hunter Valley exc Newcastle',d:270,hps2:88270,fa2:75447,il2:74004,hps3:61422,fa3:52457,il3:51260},
+  {st:'nsw',sa4:'Illawarra',d:371,hps2:103147,fa2:88163,il2:86477,hps3:71775,fa3:61298,il3:59900},
+  {st:'nsw',sa4:'Mid North Coast',d:250,hps2:89262,fa2:76295,il2:74836,hps3:62113,fa3:53046,il3:51836},
+  {st:'nsw',sa4:'Murray',d:193,hps2:84303,fa2:72056,il2:70678,hps3:58662,fa3:50099,il3:48957},
+  {st:'nsw',sa4:'New England and North West',d:166,hps2:85295,fa2:72904,il2:71510,hps3:59352,fa3:50688,il3:49533},
+  {st:'nsw',sa4:'Newcastle and Lake Macquarie',d:566,hps2:98188,fa2:83924,il2:82319,hps3:68324,fa3:58351,il3:57020},
+  {st:'nsw',sa4:'Richmond - Tweed',d:286,hps2:95213,fa2:81381,il2:79825,hps3:66253,fa3:56582,il3:55292},
+  {st:'nsw',sa4:'Riverina',d:179,hps2:87278,fa2:74599,il2:73173,hps3:60732,fa3:51867,il3:50684},
+  {st:'nsw',sa4:'Southern Highlands and Shoalhaven',d:161,hps2:90254,fa2:77143,il2:75667,hps3:63493,fa3:54225,il3:52988},
+  {st:'nsw',sa4:'Sydney - Baulkham Hills and Hawkesbury',d:258,hps2:103147,fa2:88163,il2:86477,hps3:71775,fa3:61298,il3:59900},
+  {st:'nsw',sa4:'Sydney - Blacktown',d:462,hps2:101164,fa2:86467,il2:84814,hps3:70394,fa3:60119,il3:58748},
+  {st:'nsw',sa4:'Sydney - City and Inner South',d:146,hps2:190426,fa2:162762,il2:159650,hps3:132507,fa3:113165,il3:110584},
+  {st:'nsw',sa4:'Sydney - Eastern Suburbs',d:96,hps2:188442,fa2:161067,il2:157987,hps3:131127,fa3:111986,il3:109432},
+  {st:'nsw',sa4:'Sydney - Inner South West',d:472,hps2:112073,fa2:95792,il2:93961,hps3:77986,fa3:66602,il3:65083},
+  {st:'nsw',sa4:'Sydney - Inner West',d:176,hps2:144803,fa2:123767,il2:121400,hps3:100760,fa3:86052,il3:84090},
+  {st:'nsw',sa4:'Sydney - North Sydney and Hornsby',d:233,hps2:124967,fa2:106813,il2:104770,hps3:86958,fa3:74264,il3:72571},
+  {st:'nsw',sa4:'Sydney - Northern Beaches',d:254,hps2:129926,fa2:111051,il2:108928,hps3:90408,fa3:77211,il3:75451},
+  {st:'nsw',sa4:'Sydney - Outer South West',d:281,hps2:92237,fa2:78838,il2:77330,hps3:64873,fa3:55404,il3:54140},
+  {st:'nsw',sa4:'Sydney - Outer West and Blue Mountains',d:526,hps2:93229,fa2:79686,il2:78162,hps3:64873,fa3:55404,il3:54140},
+  {st:'nsw',sa4:'Sydney - Parramatta',d:551,hps2:110090,fa2:94097,il2:92298,hps3:76606,fa3:65423,il3:63932},
+  {st:'nsw',sa4:'Sydney - Ryde',d:335,hps2:118024,fa2:100879,il2:98950,hps3:82127,fa3:70139,il3:68539},
+  {st:'nsw',sa4:'Sydney - South West',d:406,hps2:99180,fa2:84772,il2:83151,hps3:69014,fa3:58940,il3:57596},
+  {st:'nsw',sa4:'Sydney - Sutherland',d:267,hps2:113065,fa2:96640,il2:94792,hps3:78676,fa3:67192,il3:65659},
+  {st:'qld',sa4:'Brisbane - East',d:226,hps2:91246,fa2:77990,il2:76499,hps3:63493,fa3:54225,il3:52988},
+  {st:'qld',sa4:'Brisbane - North',d:204,hps2:97196,fa2:83077,il2:81488,hps3:67634,fa3:57761,il3:56444},
+  {st:'qld',sa4:'Brisbane - South',d:231,hps2:100172,fa2:85620,il2:83983,hps3:69704,fa3:59529,il3:58172},
+  {st:'qld',sa4:'Brisbane - West',d:124,hps2:97196,fa2:83077,il2:81488,hps3:67634,fa3:57761,il3:56444},
+  {st:'qld',sa4:'Brisbane Inner City',d:128,hps2:118024,fa2:100879,il2:98950,hps3:81437,fa3:69549,il3:67963},
+  {st:'qld',sa4:'Cairns',d:224,hps2:95213,fa2:81381,il2:79825,hps3:66944,fa3:57172,il3:55868},
+  {st:'qld',sa4:'Central Queensland',d:184,hps2:101164,fa2:86467,il2:84814,hps3:71084,fa3:60708,il3:59324},
+  {st:'qld',sa4:'Darling Downs - Maranoa',d:61,hps2:84303,fa2:72056,il2:70678,hps3:58662,fa3:50099,il3:48957},
+  {st:'qld',sa4:'Gold Coast',d:493,hps2:89262,fa2:76295,il2:74836,hps3:62113,fa3:53046,il3:51836},
+  {st:'qld',sa4:'Ipswich',d:488,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'qld',sa4:'Logan - Beaudesert',d:379,hps2:92237,fa2:78838,il2:77330,hps3:64183,fa3:54814,il3:53564},
+  {st:'qld',sa4:'Mackay - Isaac - Whitsunday',d:104,hps2:100172,fa2:85620,il2:83983,hps3:70394,fa3:60119,il3:58748},
+  {st:'qld',sa4:'Moreton Bay - North',d:385,hps2:88270,fa2:75447,il2:74004,hps3:61422,fa3:52457,il3:51260},
+  {st:'qld',sa4:'Moreton Bay - South',d:138,hps2:88270,fa2:75447,il2:74004,hps3:61422,fa3:52457,il3:51260},
+  {st:'qld',sa4:'Queensland - Outback',d:20,hps2:132901,fa2:113594,il2:111422,hps3:94549,fa3:80748,il3:78907},
+  {st:'qld',sa4:'Sunshine Coast',d:307,hps2:85295,fa2:72904,il2:71510,hps3:59352,fa3:50688,il3:49533},
+  {st:'qld',sa4:'Toowoomba',d:287,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'qld',sa4:'Townsville',d:227,hps2:98188,fa2:83924,il2:82319,hps3:69014,fa3:58940,il3:57596},
+  {st:'qld',sa4:'Wide Bay',d:336,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'vic',sa4:'Ballarat',d:333,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'vic',sa4:'Bendigo',d:212,hps2:84303,fa2:72056,il2:70678,hps3:58662,fa3:50099,il3:48957},
+  {st:'vic',sa4:'Geelong',d:444,hps2:92237,fa2:78838,il2:77330,hps3:63493,fa3:54225,il3:52988},
+  {st:'vic',sa4:'Hume',d:181,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'vic',sa4:'Latrobe - Gippsland',d:295,hps2:82319,fa2:70361,il2:69015,hps3:57282,fa3:48920,il3:47805},
+  {st:'vic',sa4:'Melbourne - Inner',d:387,hps2:135877,fa2:116138,il2:113917,hps3:94549,fa3:80748,il3:78907},
+  {st:'vic',sa4:'Melbourne - Inner East',d:435,hps2:115049,fa2:98336,il2:96455,hps3:80056,fa3:68370,il3:66811},
+  {st:'vic',sa4:'Melbourne - Inner South',d:488,hps2:113065,fa2:96640,il2:94792,hps3:78676,fa3:67192,il3:65659},
+  {st:'vic',sa4:'Melbourne - North East',d:780,hps2:89262,fa2:76295,il2:74836,hps3:62113,fa3:53046,il3:51836},
+  {st:'vic',sa4:'Melbourne - North West',d:323,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'vic',sa4:'Melbourne - Outer East',d:656,hps2:87278,fa2:74599,il2:73173,hps3:60732,fa3:51867,il3:50684},
+  {st:'vic',sa4:'Melbourne - South East',d:937,hps2:91246,fa2:77990,il2:76499,hps3:63493,fa3:54225,il3:52988},
+  {st:'vic',sa4:'Melbourne - West',d:808,hps2:96205,fa2:82229,il2:80656,hps3:66944,fa3:57172,il3:55868},
+  {st:'vic',sa4:'Mornington Peninsula',d:368,hps2:89262,fa2:76295,il2:74836,hps3:62113,fa3:53046,il3:51836},
+  {st:'vic',sa4:'North West',d:277,hps2:83311,fa2:71208,il2:69847,hps3:57972,fa3:49510,il3:48381},
+  {st:'vic',sa4:'Shepparton',d:195,hps2:82319,fa2:70361,il2:69015,hps3:57282,fa3:48920,il3:47805},
+  {st:'vic',sa4:'Warrnambool and South West',d:244,hps2:84303,fa2:72056,il2:70678,hps3:58662,fa3:50099,il3:48957},
 ];
 var MEDIAN={
   'Sydney - City and Inner South':2150000,'Sydney - Eastern Suburbs':3200000,'Sydney - Inner West':1850000,
@@ -6703,7 +6714,7 @@ var PARAMS={
   nsw:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:1150000,b3p:1150000,bdp:1150000,cg:0.05,c2p:180000,c3p:209470,cdp:400000,exitCost:100000,rg:0.03,hold:5},
   qld:{stamp:0.0575,ba:0.04,leg:1000,pexa:495,val:3500,b2p:710000,b3p:800000,bdp:710000,cg:0.03,c2p:108000,c3p:127675,cdp:215000,exitCost:100000,rg:0.03,hold:5}
 };
-var SH={sdaMgr:0.11,clean:0.0055,fire:3300,ins:3500,rates:2500,maint:5000,rrc:13171,sl:490,dl:800,pocTgt:0.22,irrTgt:0.18,cap:0.07};
+var SH={sdaMgr:0.11,clean:0.0055,fire:3300,ins:3500,rates:2500,maint:5000,rrc:13419,sl:490,dl:800,pocTgt:0.22,irrTgt:0.18,cap:0.07};
 
 // === Settings persistence (localStorage) ============================
 // Saves user-tweaked Settings + slider values across page reloads.
@@ -8458,7 +8469,6 @@ function buildDetail(pr,tgt){
     +(pr.sda.fa2?'<div class="dr2"><span class="l">FA (2P)/yr</span><span class="v">$'+pr.sda.fa2.toLocaleString()+'</span></div>':'')
     +(pr.sda.il2?'<div class="dr2"><span class="l">IL (2P)/yr</span><span class="v">$'+pr.sda.il2.toLocaleString()+'</span></div>':'')
     +(pr.sda.hps3?'<div class="dr2"><span class="l">HPS (3P)/yr</span><span class="v">$'+pr.sda.hps3.toLocaleString()+'</span></div>':'')
-    +'<div class="dr2"><span class="l">Max buy (2P)</span><span class="v">$'+pr.sda.mx2.toLocaleString()+'</span></div>'
     +'</div>':'';
 
   var medCard=pr.median>0?'<div class="dcard"><h4> Median house price</h4>'
@@ -10140,7 +10150,7 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
       new D.Table({width:{size:9360,type:D.WidthType.DXA},columnWidths:[4500,4860],rows:[
         new D.TableRow({tableHeader:true,children:[hc('Income & Costs',4500),hc('Amount',4860)]}),
         r2('SDA rate/participant/yr',dollar(m.sdaRate)),
-        r2('RRC/participant/yr',dollar(13171)),
+        r2('RRC/participant/yr',dollar(SH.rrc)),
         r2('Participants',m.pts),
         r2('Gross income/yr',dollar(m.gross),true),
         r2('Ongoing costs/yr','('+dollar(m.ongoing)+')'),
@@ -10190,7 +10200,7 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
     new D.TableRow({children:[tc('IL — Improved Liveability',{bold:true,bg:LGRAY,w:3120}),tc(sda.il2?dollar(sda.il2):'n/a',{w:3120}),tc(sda.il3?dollar(sda.il3):'n/a',{w:3120})]}),
     new D.TableRow({children:[tc('FA — Fully Accessible',{bold:true,bg:LGRAY,w:3120}),tc(sda.fa2?dollar(sda.fa2):'n/a',{w:3120}),tc(sda.fa3?dollar(sda.fa3):'n/a',{w:3120})]}),
     new D.TableRow({children:[tc('HPS — High Physical Support',{bold:true,bg:LGRAY,w:3120}),tc(sda.hps2?dollar(sda.hps2):'n/a',{w:3120}),tc(sda.hps3?dollar(sda.hps3):'n/a',{w:3120})]}),
-    new D.TableRow({children:[tc('RRC (per participant/yr)',{bold:true,bg:LGRAY,w:3120}),tc(dollar(13171),{w:3120}),tc(dollar(13171),{w:3120})]}),
+    new D.TableRow({children:[tc('RRC (per participant/yr)',{bold:true,bg:LGRAY,w:3120}),tc(dollar(SH.rrc),{w:3120}),tc(dollar(SH.rrc),{w:3120})]}),
   ]})]:[new D.Paragraph({children:[new D.TextRun({text:'No SDA pricing available.',italics:true,font:'Arial',size:20})]})]);
   if(sa3){
     var docTotal = sa3.total || 0;
@@ -10374,7 +10384,7 @@ function buildAndDownloadDOCX(pr,models,sda,sa3,extras,p,livePrice){
 function renderPricing(){
   var sf=(document.getElementById('prst').value||'').toLowerCase(),ss=document.getElementById('prq').value.toLowerCase(),sd=parseFloat(document.getElementById('prd').value)||0;
   document.getElementById('ptbody').innerHTML=SDA.filter(function(r){return(!sf||r.st===sf)&&(!ss||r.sa4.toLowerCase().indexOf(ss)>=0)&&(!sd||r.d>=sd);}).map(function(r){
-    return'<tr><td><span class="badge '+(SC[r.st]||'')+'">'+r.st.toUpperCase()+'</span></td><td><strong>'+r.sa4+'</strong></td><td><span class="dpill '+(r.d>=400?'dhi':r.d>=200?'dmd':'dlo')+'">'+r.d+'</span></td><td>'+(r.hps2?'$'+r.hps2.toLocaleString():'—')+'</td><td>'+(r.fa2?'$'+r.fa2.toLocaleString():'—')+'</td><td>'+(r.il2?'$'+r.il2.toLocaleString():'—')+'</td><td>'+(r.hps3?'$'+r.hps3.toLocaleString():'—')+'</td><td>$'+r.mx2.toLocaleString()+'</td></tr>';
+    return'<tr><td><span class="badge '+(SC[r.st]||'')+'">'+r.st.toUpperCase()+'</span></td><td><strong>'+r.sa4+'</strong></td><td><span class="dpill '+(r.d>=400?'dhi':r.d>=200?'dmd':'dlo')+'">'+r.d+'</span></td><td>'+(r.hps2?'$'+r.hps2.toLocaleString():'—')+'</td><td>'+(r.fa2?'$'+r.fa2.toLocaleString():'—')+'</td><td>'+(r.il2?'$'+r.il2.toLocaleString():'—')+'</td><td>'+(r.hps3?'$'+r.hps3.toLocaleString():'—')+'</td></tr>';
   }).join('')||'<tr><td colspan="8" class="empty">No results</td></tr>';
 }
 

@@ -622,7 +622,7 @@ def init_db():
             postcode TEXT,
             price REAL NOT NULL,
             land REAL NOT NULL,
-            design_type TEXT NOT NULL,           -- 2p | 3p | dp | d3
+            design_type TEXT NOT NULL,           -- 2p | 3p | dp | d3 | hv
             sale_type TEXT NOT NULL,             -- Private Sale | Auction | Off-market | EOI
             auction_date TEXT,                   -- only when sale_type=Auction
             sa4 TEXT,
@@ -1832,7 +1832,7 @@ def api_hard_delete_property():
 # row so the address can be re-added cleanly later.
 # ===========================================================================
 
-VALID_DESIGN_TYPES = {'2p', '3p', 'dp', 'd3'}
+VALID_DESIGN_TYPES = {'2p', '3p', 'dp', 'd3', 'hv'}
 VALID_SALE_TYPES = {'Private Sale', 'Auction', 'Off-market', 'Expression of Interest'}
 
 
@@ -1925,7 +1925,7 @@ def _validate_manual_payload(data, partial=False):
     if 'design_type' in data or not partial:
         dt = (data.get('design_type') or '').strip().lower()
         if dt not in VALID_DESIGN_TYPES:
-            return None, 'design_type must be one of: 2p, 3p, dp, d3'
+            return None, 'design_type must be one of: 2p, 3p, dp, d3, hv'
         out['design_type'] = dt
 
     if 'sale_type' in data or not partial:
@@ -2835,7 +2835,7 @@ def api_delete_manual_property(mid):
 # ===========================================================================
 PORTFOLIO_STATES = {'vic', 'nsw', 'qld'}
 PORTFOLIO_SNAPSHOT_MAX_BYTES = 50000
-PORTFOLIO_PLACES = {'2p': 2, '3p': 3, 'dp': 4, 'd3': 6}
+PORTFOLIO_PLACES = {'2p': 2, '3p': 3, 'dp': 4, 'd3': 6, 'hv': 2}  # hv: the 2P house; villa resident stored as occupancy['villa']
 
 
 def _portfolio_can_edit(u, row):
@@ -2992,7 +2992,7 @@ def api_add_portfolio_item(pid):
     if not isinstance(snap, dict):
         return jsonify({'error': 'snapshot is required'}), 400
     if model not in VALID_DESIGN_TYPES:
-        return jsonify({'error': 'model must be one of: 2p, 3p, dp, d3'}), 400
+        return jsonify({'error': 'model must be one of: 2p, 3p, dp, d3, hv'}), 400
     address = snap.get('address')
     state = str(snap.get('state') or '').strip().lower()
     if not isinstance(address, str) or not address.strip():
@@ -3062,7 +3062,7 @@ def api_update_portfolio_item(pid, iid):
         model = str(data.get('model') or '').strip().lower()
         if model not in VALID_DESIGN_TYPES:
             db.close()
-            return jsonify({'error': 'model must be one of: 2p, 3p, dp, d3'}), 400
+            return jsonify({'error': 'model must be one of: 2p, 3p, dp, d3, hv'}), 400
     places = PORTFOLIO_PLACES[model]
 
     occ_json = item['occupancy']
@@ -3088,11 +3088,23 @@ def api_update_portfolio_item(pid, iid):
             if sum(clean.values()) > places:
                 db.close()
                 return jsonify({'error': 'This build model has %d places, so it can take at most %d residents' % (places, places)}), 400
+            if model == 'hv':
+                villa = str(occ.get('villa') or '').strip().lower()
+                if villa not in ('', 'il', 'fa', 'hps'):
+                    db.close()
+                    return jsonify({'error': 'villa must be il, fa, hps or empty'}), 400
+                clean['villa'] = villa
             occ_json = json.dumps(clean)
     elif occ_json:
+        # Model changed: keep the residents only if they still fit.
         try:
-            if sum(int(v or 0) for v in json.loads(occ_json).values()) > places:
+            cur = json.loads(occ_json)
+            if sum(int(cur.get(k) or 0) for k in ('il', 'fa', 'hps')) > places:
                 occ_json = None
+            else:
+                if model != 'hv':
+                    cur.pop('villa', None)
+                occ_json = json.dumps(cur)
         except (ValueError, TypeError, AttributeError):
             occ_json = None
 
@@ -4720,6 +4732,5 @@ def admin_users_api():
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
-
 
 

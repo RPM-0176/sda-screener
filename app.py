@@ -822,6 +822,8 @@ def init_db():
             created_by_name TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now')),
+            equity_type TEXT,            -- 'amount' | 'pct' | NULL (= use screener LVR)
+            equity_value REAL,           -- dollars, or percent of TDC (0-100)
             FOREIGN KEY (created_by_id) REFERENCES users(id)
         );
 
@@ -872,6 +874,7 @@ def init_db():
         ('res_bed', 'TEXT'), ('sprinklers', 'TEXT'), ('ooa', 'TEXT'), ('breakout', 'TEXT'),
     ])
     _ensure_columns('portfolio_items', [('occupancy', 'TEXT')])
+    _ensure_columns('portfolios', [('equity_type', 'TEXT'), ('equity_value', 'REAL')])
     _ensure_columns('partner_doc_snapshots', [
         ('onedrive_status', 'TEXT'),
         ('onedrive_url', 'TEXT'),
@@ -2855,6 +2858,8 @@ def _portfolio_summary(r, u, item_count=0):
         'updated_at': r['updated_at'],
         'item_count': item_count,
         'can_edit': _portfolio_can_edit(u, r),
+        'equity_type': r['equity_type'] if 'equity_type' in r.keys() else None,
+        'equity_value': r['equity_value'] if 'equity_value' in r.keys() else None,
     }
 
 
@@ -2953,19 +2958,45 @@ def api_get_portfolio(pid):
 
 @app.route('/api/portfolios/<int:pid>', methods=['PUT'])
 @login_required
-def api_rename_portfolio(pid):
-    name, err = _clean_portfolio_name(request.get_json(silent=True))
-    if err:
-        return jsonify({'error': err}), 400
+def api_update_portfolio(pid):
+    """Rename a portfolio and/or set its total equity.
+    equity: {"type": "amount"|"pct", "value": n} or null (= use the screener LVR).
+    Equity is the total cash going into the portfolio; debt funds the rest."""
+    data = request.get_json(silent=True) or {}
+    if 'name' not in data and 'equity' not in data:
+        return jsonify({'error': 'Nothing to change'}), 400
+    sets, vals = [], []
+    if 'name' in data:
+        name, err = _clean_portfolio_name(data)
+        if err:
+            return jsonify({'error': err}), 400
+        sets.append('name=?'); vals.append(name)
+    if 'equity' in data:
+        eq = data.get('equity')
+        if eq is None:
+            sets += ['equity_type=?', 'equity_value=?']; vals += [None, None]
+        else:
+            if not isinstance(eq, dict):
+                return jsonify({'error': 'equity must be {type, value} or null'}), 400
+            et = str(eq.get('type') or '').strip().lower()
+            if et not in ('amount', 'pct'):
+                return jsonify({'error': 'equity type must be amount or pct'}), 400
+            try:
+                ev = float(eq.get('value'))
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Equity must be a number'}), 400
+            if ev < 0 or (et == 'pct' and ev > 100):
+                return jsonify({'error': 'Equity must be 0 or more (and at most 100%)'}), 400
+            sets += ['equity_type=?', 'equity_value=?']; vals += [et, ev]
     db = get_db()
     row, bad = _load_portfolio_for_edit(db, pid)
     if bad:
         db.close()
         return bad
-    db.execute("UPDATE portfolios SET name=?, updated_at=datetime('now') WHERE id=?", (name, pid))
+    db.execute("UPDATE portfolios SET " + ', '.join(sets) + ", updated_at=datetime('now') WHERE id=?", vals + [pid])
     db.commit()
     db.close()
-    log_event('portfolio_renamed', {'id': pid, 'name': name})
+    log_event('portfolio_updated', {'id': pid, 'fields': [k for k in ('name', 'equity') if k in data]})
     return jsonify({'ok': True})
 
 
@@ -4776,6 +4807,5 @@ def admin_users_api():
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
-
 
 

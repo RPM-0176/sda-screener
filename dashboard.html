@@ -211,6 +211,8 @@ tr.dr:hover td{background:#fafaf9}
     <div class="fg"><label>State</label><select id="fst" onchange="applyF()"><option value="">All</option><option value="vic">VIC</option><option value="nsw">NSW</option><option value="qld">QLD</option></select></div>
     <div class="fg"><label>Build model</label><select id="fmod" onchange="applyF()"><option value="">All</option><option value="2p">2P house</option><option value="3p">3P house</option><option value="dp">Duplex</option><option value="d3">Duplex 3P</option><option value="hv">2P House + 1P Villa</option></select></div>
     <div class="fg"><label>Return filter</label><select id="fret" onchange="applyF()"><option value="">All</option><option value="pass">&#8805; target only</option><option value="fail">Below target</option></select></div>
+    <div class="fg"><label>Buyable</label><select id="fbuy" onchange="applyF()" title="Asking price (or the offer price set on the card) against the max land price for the best build the site fits, at the Net return target, always on the private lender (Austar terms). Green = at or under max; amber = up to 10% over; grey = more than 10% over."><option value="">All</option><option value="g">Green only</option><option value="ga">Green + amber</option></select></div>
+    <div class="fg"><label>Rank</label><button type="button" onclick="srt('gap')" title="Sort by how far the price is under the max land price (furthest under first). Click again to reverse." style="font-size:12px;padding:5px 8px;border:1px solid #0F6E56;border-radius:4px;background:#f0fdf4;color:#0F6E56;font-weight:600;cursor:pointer;white-space:nowrap">Furthest under max &#8595;</button></div>
     <div class="fg"><label>Under median only</label><select id="fmed" onchange="applyF()"><option value="">All</option><option value="yes">Under median only</option></select></div>
     <div class="fg"><label>Max price ($)</label><input type="number" id="fprice" placeholder="1500000" oninput="applyF()"></div>
     <div class="fg"><label>Total dev cost band</label><select id="fcost" onchange="applyF()" title="Total completed development spend: purchase price + stamp duty + legal + PEXA + BA fee + valuation + build + consultants + extras. Only returns configs that ALSO clear the target return.">
@@ -6995,7 +6997,7 @@ var VIEW_KEY = 'sda_screener_view_v1';
 var SHORTLIST_KEY = 'sda_screener_shortlist_v1';
 var _viewLoading = false; // guard so applyF/srt don't re-save during load
 function _viewIds() {
-  return ['fsub','fsa4','fst','fmod','fret','fmed','fprice','fland','fdem','firr','fcat','fsupply','fcost'];
+  return ['fsub','fsa4','fst','fmod','fret','fmed','fprice','fland','fdem','firr','fcat','fsupply','fcost','fbuy'];
 }
 function saveView() {
   if (_viewLoading) return;
@@ -7497,6 +7499,7 @@ function applyPropPrice(id) {
   if(lbl) lbl.textContent=propPrice[id]
     ? '⚠ Offer $'+propPrice[id].toLocaleString()+' — returns updated'
     : 'Listed $'+pr.price.toLocaleString()+' — edit to model your offer';
+  try{ refreshBuy(id); }catch(_){}
 }
 
 // Live Supavest TIC summary on the property detail card. Shows the ticket
@@ -9466,6 +9469,131 @@ function sa4Toggle(e){
 }
 document.addEventListener('click', function(){ var pop = document.getElementById('fsa4-pop'); if (pop) pop.style.display = 'none'; });
 
+// ------------------------------------------------ buyable ranking (Deal finder Stage 1, Nov 2026)
+// For each listing: the max land price for the best build the site fits, at
+// the Net return target slider, ALWAYS on the private lender (Austar terms)
+// whatever the top-bar lender switch says. Compared with the asking price (or
+// the offer price set on the card):
+//   green = at or under max, amber = up to 10% over, grey = more than 10% over.
+// "Best build it fits" = of the builds the site fits (the saved VIC site
+// check's fits where one exists, otherwise the land-size rules and any
+// frontage/depth entered on the card), the one with the highest max land.
+// Results are cached on each property; only max land is re-solved when the
+// target slider moves.
+var BUY_AMBER = 0.10;
+var SC_STORE = {};   // { address_key: {result, fits:[labels]} } from /api/site-checks
+function scKey(addr){ return String(addr || '').trim().toLowerCase().split(/\s+/).join(' '); } // = app.py _address_key()
+function scFitsFor(pr){
+  if (!pr || pr.state !== 'vic') return null;
+  var r = SC_STORE[scKey(pr.addr)]; if (!r) return null;
+  var codes = [];
+  (r.fits || []).forEach(function(lbl){
+    Object.keys(SC_NAMES).forEach(function(k){ if ((SC_NAMES[k] === lbl || k === lbl) && codes.indexOf(k) < 0) codes.push(k); });
+  });
+  return {result: r.result || 'Unknown', codes: codes};
+}
+function loadSiteChecks(){
+  fetch('/api/site-checks', {credentials:'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || typeof j !== 'object') return;
+      SC_STORE = j;
+      if (typeof props === 'undefined' || !props.length) return;
+      // Re-rank only if no card is open (re-rendering the table closes cards).
+      var open = Array.prototype.some.call(document.querySelectorAll('.dtr'), function(tr){ return tr.style.display === 'table-row'; });
+      if (!open) applyF(); else props.forEach(function(pr){ refreshBuy(pr.id); });
+    })
+    .catch(function(){});
+}
+function calcBuyable(pr){
+  var price = propPrice[pr.id] || pr.price || 0;
+  var sda = getSDA(pr.sa4, pr.state) || pr.sda || null;
+  var p = pr.p || PARAMS[pr.state] || PARAMS.nsw;
+  var sc = scFitsFor(pr), cat = propCat[pr.id] || null, ex = getExtrasTotal(pr.id), cap = effectiveCap(pr.id);
+  var key = [price, cat || '', getCat(), cap, ex, sc ? sc.result + ':' + sc.codes.join(',') : '-', JSON.stringify(SITE_RULES), JSON.stringify(getDims(pr))].join('|');
+  var c = pr._buyC;
+  if (!c || c.key !== key){
+    var models = [];
+    if (sda){
+      var saved = SCREEN_LENDER; SCREEN_LENDER = 'private';
+      try {
+        models = ['2p','3p','dp','d3','hv'].map(function(m){ return calcModel(price, pr.land, sda, m, p, cat, ex, cap); }).filter(Boolean);
+      } finally { SCREEN_LENDER = saved; }
+    }
+    models = models.filter(function(m){ return sc ? sc.codes.indexOf(m.model) >= 0 : siteFit(pr, m.model) !== 'fail'; });
+    c = pr._buyC = {key: key, models: models, sc: sc};
+  }
+  // Best build for buying = the one that supports the HIGHEST land price at
+  // the target (not always the highest-return build: a 2P + villa can return
+  // more at the asking price while a 3P supports a higher price).
+  var tgt = getTgt(), p2 = p, m = null, maxL = 0;
+  c.models.forEach(function(x){
+    var v = calcMaxLand(x.net / (1 + x.fin.total / x.base), x.build + x.buildFee, x.cons, p2, tgt);
+    if (!m || v > maxL){ m = x; maxL = v; }
+  });
+  var out = {price: price, offer: !!propPrice[pr.id], src: c.sc ? 'check' : 'rules', scResult: c.sc ? c.sc.result : null, tgt: tgt};
+  if (!m || !price){ out.st = 'none'; out.gap = null; out.maxL = 0; out.model = null; return out; }
+  out.maxL = maxL; out.model = m.model; out.ret = m.ret; out.gap = maxL - price;
+  out.st = (maxL > 0 && price <= maxL) ? 'green' : (maxL > 0 && price <= maxL * (1 + BUY_AMBER)) ? 'amber' : 'grey';
+  return out;
+}
+var BUY_STYLE = {
+  green: {bg:'#dcfce7', fg:'#0F6E56', lbl:'Buyable'},
+  amber: {bg:'#fef3c7', fg:'#B45309', lbl:'Within 10%'},
+  grey:  {bg:'#f3f4f6', fg:'#6B7280', lbl:'Over max'},
+  none:  {bg:'#f3f4f6', fg:'#9CA3AF', lbl:'No build fits'}
+};
+function buyMoney(v){
+  v = Math.abs(Math.round(v || 0));
+  return v >= 1000000 ? '$' + (v / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'm' : '$' + Math.round(v / 1000) + 'k';
+}
+function buyGapText(b){
+  if (!b || b.st === 'none' || b.gap == null) return '';
+  return b.gap >= 0 ? buyMoney(b.gap) + ' under max' : buyMoney(b.gap) + ' over max';
+}
+function buyTitle(b){
+  if (!b) return '';
+  if (b.st === 'none') return b.src === 'check' ? 'The saved site check found no build that fits this lot.' : 'No build model fits this site on the land-size rules (or no SDA rates for the area / no price).';
+  return 'Max land $' + b.maxL.toLocaleString() + ' for ' + (MN[b.model] || b.model) + ' at ' + (b.tgt * 100).toFixed(2) + '% net target, private lender (Austar terms). '
+    + (b.offer ? 'Offer' : 'Asking') + ' price $' + b.price.toLocaleString() + '. Best build from ' + (b.src === 'check' ? 'the saved site check (' + b.scResult + ')' : 'the land-size rules') + '.';
+}
+function buyRowHtml(b){
+  if (!b) return '';
+  var s = BUY_STYLE[b.st] || BUY_STYLE.none, g = buyGapText(b);
+  return '<span class="buybadge" style="display:inline-block;font-size:9px;font-weight:800;letter-spacing:.02em;background:' + s.bg + ';color:' + s.fg + ';padding:1px 6px;border-radius:3px;margin-right:6px">' + s.lbl + '</span>'
+    + (g ? '<span style="font-size:10px;font-weight:600;color:' + s.fg + '">' + g + '</span>' : '')
+    + (b.model ? '<span style="font-size:10px;color:#9CA3AF"> &middot; ' + (MN[b.model] || b.model) + (b.src === 'check' ? ' (site check)' : '') + '</span>' : '');
+}
+function buyCardHtml(pr){
+  var b = calcBuyable(pr), s = BUY_STYLE[b.st] || BUY_STYLE.none;
+  var bank = getScreenLender() === 'bank';
+  var body;
+  if (b.st === 'none') {
+    body = '<span style="font-size:12px;color:#6B7280">' + escHtml(buyTitle(b)) + '</span>';
+  } else {
+    body = '<span style="font-size:12px;color:#111827">' + (b.offer ? 'Offer' : 'Asking') + ' <b>$' + b.price.toLocaleString() + '</b> vs max land <b style="color:#185FA5">$' + b.maxL.toLocaleString() + '</b>'
+      + ' for <b>' + (MN[b.model] || b.model) + '</b> &rarr; <b style="color:' + s.fg + '">' + buyGapText(b) + '</b></span>';
+  }
+  return '<div id="buycard-' + pr.id + '" style="grid-column:1/-1;flex:0 0 100%;width:100%;box-sizing:border-box;align-self:start;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 12px;margin-bottom:10px;background:' + s.bg + '55;border:1px solid ' + s.fg + '44;border-radius:6px">'
+    + '<span style="background:' + s.fg + ';color:#fff;font-weight:800;font-size:11px;border-radius:4px;padding:2px 9px">' + s.lbl + '</span>'
+    + body
+    + '<span style="font-size:10px;color:#6B7280;flex-basis:100%">At ' + (b.tgt * 100).toFixed(2) + '% net return target, always on the private lender (Austar terms)'
+    + (bank ? ' &mdash; the cards below use CBA, so their max land differs' : '')
+    + '. Best build from ' + (b.src === 'check' ? 'the saved site check (' + escHtml(b.scResult) + ')' : 'the land-size rules') + '. Green = at or under max; amber = up to 10% over; grey = more than 10% over.</span>'
+    + '</div>';
+}
+// Refresh one property's badge on the row and card in place (no table
+// re-render, so an open card stays open). The table is not re-sorted.
+function refreshBuy(id){
+  var pr = props.find(function(p){ return p.id == id; }); if (!pr) return;
+  pr._buy = calcBuyable(pr);
+  var rowEl = document.getElementById('buy-' + id);
+  if (rowEl){ rowEl.innerHTML = buyRowHtml(pr._buy); rowEl.title = buyTitle(pr._buy); }
+  var cardEl = document.getElementById('buycard-' + id);
+  if (cardEl) cardEl.outerHTML = buyCardHtml(pr);
+}
+loadSiteChecks();
+
 function applyF(){
   var fSA4s=sa4Selected().map(function(x){return x.toLowerCase();});
   var fSt=document.getElementById('fst').value;
@@ -9502,8 +9630,13 @@ function applyF(){
       : (fMod && subModelCount===0 ? subCount+' propert'+(subCount===1?'y is':'ies are')+' for sale in '+escHtml(subName)+', but none fit a '+MODEL_LBL[fMod]+' (usually land size).'
         : null));
   var tgt=getTgt();
+  var fBuyEl=document.getElementById('fbuy');
+  var fBuy=fBuyEl?fBuyEl.value:'';
   filt=props.filter(function(pr){
     pr._bandModel=null;pr._bandTotal=null;pr._bandRet=null;pr._sv=null;
+    pr._buy=calcBuyable(pr);
+    if(fBuy==='g'&&pr._buy.st!=='green')return false;
+    if(fBuy==='ga'&&pr._buy.st!=='green'&&pr._buy.st!=='amber')return false;
     if(!subOk(pr))return false;
     if(fSA4s.length&&fSA4s.indexOf(String(pr.sa4||'').toLowerCase())<0)return false;
     if(fSt&&pr.state!==fSt)return false;
@@ -9567,6 +9700,14 @@ function applyF(){
     if(sortK==='maxl')return d*(b.bestMaxL-a.bestMaxL);
     if(sortK==='median')return d*(b.median-a.median);
     if(sortK==='dem')return d*((b.sda?b.sda.d:0)-(a.sda?a.sda.d:0));
+    if(sortK==='gap'){
+      // Furthest under max first (d = -1); no price / no build fits always last.
+      var ag=(a._buy&&a._buy.gap!=null)?a._buy.gap:null, bg=(b._buy&&b._buy.gap!=null)?b._buy.gap:null;
+      if(ag===null&&bg===null)return 0;
+      if(ag===null)return 1;
+      if(bg===null)return -1;
+      return -d*(bg-ag);
+    }
     if(sortK==='supply'){
       // SA2s with no data sort last regardless of direction
       var ad=a.supply?a.supply.deficit:null, bd=b.supply?b.supply.deficit:null;
@@ -9782,7 +9923,8 @@ function renderTable(tgt){
       +'onmouseover="this.style.color=\'#A32D2D\'" onmouseout="this.style.color=\'#D1D5DB\'">'
       +'\u2715</span>'
       +manualMarks
-      +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a></td>'
+      +'<a class="rplink" data-addr="'+pr.addr.replace(/"/g,'&quot;')+'" style="color:#185FA5;font-weight:700;font-size:12px;text-decoration:none;cursor:pointer">'+pr.addr+' &#8599;</a>'
+      +'<div id="buy-'+pr.id+'" style="margin-top:2px;white-space:nowrap" title="'+escHtml(buyTitle(pr._buy||calcBuyable(pr)))+'">'+buyRowHtml(pr._buy||calcBuyable(pr))+'</div></td>'
       +'<td>'+fmtPrice(pr.price)+'</td>'
       +'<td>'+(pr.land>0?Math.round(pr.land)+'m\u00b2':'—')+'</td>'
       +'<td>'+stB+'</td>'
@@ -10283,7 +10425,7 @@ function buildDetail(pr,tgt){
       + '</div>';
   })();
 
-  return '<div class="dinn">'+cards+sdaCard+medCard+sa3Card+sensitivityCard+proxCard+nearbySdaCard+toolsCard+expBtn+'</div>';
+  return '<div class="dinn">'+buyCardHtml(props.find(function(x){return x.id==pr.id;})||pr)+cards+sdaCard+medCard+sa3Card+sensitivityCard+proxCard+nearbySdaCard+toolsCard+expBtn+'</div>';
 }
 
 // Commit dimensions when user presses Enter or clicks Update.
@@ -10307,6 +10449,7 @@ function runSiteCheck(id, refresh){
     .then(function(x){
       if (!x.ok || x.j.error){ box.innerHTML = siteCheckErr(id, x.j && x.j.error); return; }
       box.innerHTML = siteCheckHtml(id, x.j);
+      try { SC_STORE[scKey(pr.addr)] = {result: x.j.result, fits: x.j.fits || []}; refreshBuy(id); } catch(_){}
     })
     .catch(function(e){ box.innerHTML = siteCheckErr(id, e.message); });
 }
